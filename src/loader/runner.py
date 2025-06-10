@@ -31,10 +31,24 @@ tqdm.pandas()
     type=str,
     help="experiment description",
 )
+@click.option(
+    "--config",
+    default="config/datasets.yaml",
+    required=False,
+    type=str,
+    help="path to datasets configuration file",
+)
+@click.option(
+    "--develop",
+    is_flag=True,
+    default=False,
+    help="run in development mode without logging to personal account",
+)
 def main(
         bucket: str,
         project: str,
         description: str,
+        config: str,
         develop: bool
 ) -> None:
     """
@@ -44,6 +58,7 @@ def main(
         bucket (str): bucket name where all the data is saved
         project (str): The name of the wandb project.
         description (str): A description of the current run.
+        config (str): Path to the datasets configuration file.
         develop (bool): If True, run in development mode without logging to personal account.
     """
 
@@ -68,11 +83,18 @@ def main(
         # ------------------ create necessary folders ------------------
         output_folder_dir = Path('artifacts') / "raw" / generate_folder_name()
         output_folder_dir.mkdir(parents=True, exist_ok=True)
-        artifact.metadata.update({'output_dir': output_folder_dir})
+        artifact.metadata.update({'output_dir': str(output_folder_dir)})
 
         # ------------------ load data ------------------
         s3_loader = get_s3_loader(bucket)
-        loader = DataLoader(artifact, str(output_folder_dir))
+        loader = DataLoader(artifact, str(output_folder_dir), config_path=config)
+        
+        # Print dataset info
+        print("\nDataset Information:")
+        for name, info in loader.get_dataset_info().items():
+            status = "✓ Enabled" if info["enabled"] else "✗ Disabled"
+            print(f"  {name}: {status} - {info['description']}")
+        
         loader.run_loading()
 
         # ------------------ save ------------------
