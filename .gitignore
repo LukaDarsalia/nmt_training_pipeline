@@ -1,7 +1,10 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+.idea/
+*DS_STORE*
 *.py[cod]
 *$py.class
+playground.ipynb
 
 # C extensions
 *.so
