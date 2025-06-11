@@ -1,0 +1,13 @@
+pandas
+numpy
+torch
+fastparquet
+boto3
+python-dotenv
+pyarrow
+wandb
+scikit-learn
+datasets
+tqdm
+datasketch
+transformers[torch]
