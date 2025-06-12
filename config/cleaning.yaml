@@ -1,0 +1,58 @@
+# Data Cleaning Configuration
+# Configure which cleaning functions to apply and their parameters
+
+cleaners:
+  # Remove rows with empty or whitespace-only content
+  - name: "filter_empty_content"
+    enabled: true
+    description: "Remove rows with empty English or Georgian text"
+    params: {}
+
+  # Remove very short texts
+  - name: "filter_minimum_length"
+    enabled: false
+    description: "Remove texts that are too short to be meaningful"
+    params:
+      min_en_length: 5      # Minimum English text length
+      min_ka_length: 5      # Minimum Georgian text length
+
+  # Filter Georgian texts with too many Latin characters
+  - name: "filter_georgian_purity"
+    enabled: true
+    description: "Remove Georgian texts containing too many Latin characters"
+    params:
+      threshold: 0.5        # Minimum ratio of Georgian characters required
+
+  # Filter based on shared Latin characters
+  - name: "filter_shared_latin_characters"
+    enabled: true
+    description: "Keep only rows where Latin chars in Georgian also appear in English"
+    params: {}
+
+  # Filter based on length ratio between English and Georgian
+  - name: "filter_length_ratio"
+    enabled: true
+    description: "Remove rows with extreme length differences"
+    params:
+      min_ratio: 0.3        # Minimum EN/KA length ratio
+      max_ratio: 3.0        # Maximum EN/KA length ratio
+
+  # Filter based on semantic similarity using Jina embeddings
+  - name: "filter_similarity_threshold"
+    enabled: false          # Disabled by default due to computational cost
+    description: "Remove rows with low semantic similarity between EN and KA"
+    params:
+      threshold: 0.5        # Minimum cosine similarity threshold
+      batch_size: 32        # Batch size for embedding computation
+      model_name: "jinaai/jina-embeddings-v3"  # Embedding model to use
+
+# Global settings
+settings:
+  # Whether to log intermediate results to wandb
+  log_intermediate: true
+
+  # Random seed for reproducible sampling
+  random_seed: 42
+
+  # Whether to create backup of dropped data
+  save_dropped_data: true
