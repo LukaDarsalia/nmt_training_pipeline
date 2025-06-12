@@ -148,9 +148,6 @@ def sentence_concatenation_augmentation(df: pd.DataFrame, config: Dict[str, Any]
     return pd.DataFrame(augmented_data)
 
 
-
-
-
 @register_augmenter("sentence_reversal", "Reverse word order in target sentences")
 def sentence_reversal_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """
@@ -274,38 +271,26 @@ def number_copying_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.
         else:
             return str(random.randint(1, 100))
 
-    templates_en = [
-        "The number is {number}.",
-        "Value: {number}",
-        "Result equals {number}",
-        "Count: {number}",
-        "Total: {number}",
-        "Amount: {number}",
-        "Score: {number}",
-        "Price: ${number}",
-        "Year: {number}",
-        "ID: {number}"
-    ]
-
-    templates_ka = [
-        "რიცხვი არის {number}.",
-        "მნიშვნელობა: {number}",
-        "შედეგი ტოლია {number}",
-        "რაოდენობა: {number}",
-        "სრული: {number}",
-        "თანხა: {number}",
-        "ქულა: {number}",
-        "ფასი: ${number}",
-        "წელი: {number}",
-        "ID: {number}"
+    # Paired templates - each tuple contains (English, Georgian) translations
+    template_pairs = [
+        ("The number is {number}.", "რიცხვი არის {number}."),
+        ("Value: {number}", "მნიშვნელობა: {number}"),
+        ("Result equals {number}", "შედეგი ტოლია {number}"),
+        ("Count: {number}", "რაოდენობა: {number}"),
+        ("Total: {number}", "სრული: {number}"),
+        ("Amount: {number}", "თანხა: {number}"),
+        ("Score: {number}", "ქულა: {number}"),
+        ("Price: ${number}", "ფასი: ${number}"),
+        ("Year: {number}", "წელი: {number}"),
+        ("ID: {number}", "ID: {number}")
     ]
 
     for i in tqdm(range(num_examples), desc="Generating number copying examples"):
         number_type = random.choice(number_types)
         number = generate_number(number_type)
 
-        en_template = random.choice(templates_en)
-        ka_template = random.choice(templates_ka)
+        # Select a random template pair (ensures EN and KA are translations)
+        en_template, ka_template = random.choice(template_pairs)
 
         new_row = {
             'title': None,
@@ -389,19 +374,23 @@ def georgian_text_copying_augmentation(df: pd.DataFrame, config: Dict[str, Any])
     return pd.DataFrame(augmented_data)
 
 
-@register_augmenter("concatenate_long_texts", "Concatenate multiple rows to create longer texts")
+@register_augmenter("restructure_to_longer_texts", "DATASET RESTRUCTURING: Combine multiple rows into fewer longer texts")
 def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """
-    Create a new dataset by concatenating multiple consecutive rows to create longer texts.
-    This helps improve translation quality for long texts by better covering
-    the positional embedding space. Returns the restructured dataset.
+    DATASET RESTRUCTURING OPERATION: Combine multiple consecutive rows to create fewer, longer texts.
+    This REDUCES the total number of rows while creating longer training examples.
+
+    Purpose: Improve translation quality for long texts by better covering the positional embedding space.
+
+    Note: This is a dataset restructuring operation, not traditional augmentation.
+    It will reduce your dataset size while creating longer, more comprehensive examples.
 
     Args:
         df: Input DataFrame
         config: Configuration with 'concatenation_ratio', 'min_group_size', 'max_group_size', 'separator'
 
     Returns:
-        DataFrame with concatenated longer texts (this replaces the original dataset)
+        DataFrame with concatenated longer texts (this replaces the original dataset structure)
     """
     concatenation_ratio = config.get('concatenation_ratio', 0.3)  # 30% of rows will be part of concatenations
     min_group_size = config.get('min_group_size', 2)  # Minimum rows to concatenate
@@ -430,7 +419,7 @@ def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]
 
     if strategy == 'consecutive':
         i = 0
-        tqdm_desc = "Concatenating consecutive rows"
+        tqdm_desc = "Restructuring dataset with longer texts"
 
         with tqdm(total=total_rows, desc=tqdm_desc) as pbar:
             while i < total_rows:
@@ -460,7 +449,7 @@ def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]
 
                         concatenated_row['en'] = concatenated_en
                         concatenated_row['ka'] = concatenated_ka
-                        concatenated_row['id'] = f"concat_{'_'.join(concatenated_ids[:3])}"  # Limit ID length
+                        concatenated_row['id'] = f"restructured_{'_'.join(concatenated_ids[:3])}"  # Limit ID length
 
                         concatenated_rows.append(concatenated_row)
                         used_indices.update(group_indices)
@@ -482,7 +471,7 @@ def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]
         random.shuffle(available_indices)
 
         i = 0
-        with tqdm(total=rows_to_concatenate, desc="Concatenating random rows") as pbar:
+        with tqdm(total=rows_to_concatenate, desc="Restructuring with random grouping") as pbar:
             while i < len(available_indices) and len(used_indices) < rows_to_concatenate:
                 remaining_budget = rows_to_concatenate - len(used_indices)
 
@@ -506,7 +495,7 @@ def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]
 
                         concatenated_row['en'] = concatenated_en
                         concatenated_row['ka'] = concatenated_ka
-                        concatenated_row['id'] = f"concat_{'_'.join(concatenated_ids[:3])}"
+                        concatenated_row['id'] = f"restructured_{'_'.join(concatenated_ids[:3])}"
 
                         concatenated_rows.append(concatenated_row)
                         used_indices.update(group_indices)
@@ -527,7 +516,7 @@ def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]
     all_rows = concatenated_rows + remaining_rows
 
     if not all_rows:
-        print("    Warning: No rows produced by concatenation")
+        print("    Warning: No rows produced by restructuring")
         return df_copy
 
     result_df = pd.DataFrame(all_rows).reset_index(drop=True)
@@ -537,32 +526,32 @@ def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]
     num_original_rows_used = len(used_indices)
     compression_ratio = len(result_df) / len(df_copy) if len(df_copy) > 0 else 1
 
-    print(f"    Created {num_concatenated_groups} concatenated groups from {num_original_rows_used} original rows")
-    print(f"    Dataset size: {len(df_copy)} → {len(result_df)} (compression: {compression_ratio:.2f}x)")
+    print(f"    ✓ DATASET RESTRUCTURED: {num_original_rows_used} rows → {num_concatenated_groups} longer texts")
+    print(f"    ✓ Total dataset: {len(df_copy)} → {len(result_df)} rows (compression: {compression_ratio:.2f}x)")
 
     return result_df
 
 
-@register_augmenter("simulate_translation_artifacts", "Simulate common machine translation errors and artifacts")
+@register_augmenter("natural_writing_variations", "Simulate natural human writing variations and common errors")
 def simulate_translation_artifacts_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """
-    Simulate common machine translation artifacts and errors to improve model robustness.
-    This includes typical errors like word order changes, missing articles, etc.
+    Simulate natural human writing variations and common errors to improve model robustness.
+    This includes typical variations like word order changes, missing articles, etc.
 
     Args:
         df: Input DataFrame
-        config: Configuration with 'percentage', 'artifact_types'
+        config: Configuration with 'percentage', 'variation_types'
 
     Returns:
-        DataFrame with simulated translation artifacts
+        DataFrame with natural writing variations
     """
     percentage = config.get('percentage', 0.05)
-    artifact_types = config.get('artifact_types', ['word_order', 'article_errors', 'literal_translation'])
+    variation_types = config.get('variation_types', ['word_order', 'article_errors', 'informal_style'])
 
     augmented_data = []
 
     def introduce_word_order_changes(text: str) -> str:
-        """Introduce word order changes typical in machine translation."""
+        """Introduce word order changes typical in casual writing."""
         words = text.split()
         if len(words) > 2:
             # Randomly swap adjacent words
@@ -571,24 +560,42 @@ def simulate_translation_artifacts_augmentation(df: pd.DataFrame, config: Dict[s
         return ' '.join(words)
 
     def introduce_article_errors(text: str) -> str:
-        """Remove articles incorrectly, simulating common MT errors."""
-        # Remove articles
+        """Remove articles, simulating casual or non-native writing."""
+        # Remove articles randomly (as people sometimes do in casual writing)
         text = re.sub(r'\b(a|an|the)\s+', '', text, flags=re.IGNORECASE)
         return text
 
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Simulating translation artifacts"):
+    def introduce_informal_style(text: str) -> str:
+        """Add informal writing patterns."""
+        # Simple contractions and informal patterns
+        informal_replacements = {
+            ' and ': ' & ',
+            'you are': "you're",
+            'do not': "don't",
+            'cannot': "can't",
+            'will not': "won't"
+        }
+
+        for formal, informal in informal_replacements.items():
+            if formal in text.lower():
+                text = text.replace(formal, informal)
+
+        return text
+
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Adding natural writing variations"):
         if random.random() < percentage:
             new_row = row.copy()
 
-            artifact_type = random.choice(artifact_types)
+            variation_type = random.choice(variation_types)
 
-            if artifact_type == 'word_order':
+            if variation_type == 'word_order':
                 new_row['en'] = introduce_word_order_changes(str(row['en']))
-            elif artifact_type == 'article_errors':
+            elif variation_type == 'article_errors':
                 new_row['en'] = introduce_article_errors(str(row['en']))
-            # Add more artifact types as needed
+            elif variation_type == 'informal_style':
+                new_row['en'] = introduce_informal_style(str(row['en']))
 
-            new_row['id'] = f"{row['id']}_mt_artifacts"
+            new_row['id'] = f"{row['id']}_natural_variation"
             augmented_data.append(new_row)
 
     return pd.DataFrame(augmented_data)

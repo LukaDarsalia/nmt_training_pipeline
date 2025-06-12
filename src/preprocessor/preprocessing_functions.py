@@ -122,7 +122,7 @@ def normalize_characters(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFra
             text = text.replace(dash, "-")
 
         # Normalize apostrophes
-        apostrophes = ["'", '`', '´', ''', ''', 'ʻ']
+        apostrophes = ["'", '`', '´', 'ʻ']
         for apos in apostrophes:
             text = text.replace(apos, "'")
 

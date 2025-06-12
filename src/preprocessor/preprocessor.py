@@ -11,6 +11,9 @@ import wandb
 import yaml
 from tqdm import tqdm
 
+# Import all preprocessing and augmentation functions to register them
+from .preprocessing_functions import *
+from .augmentation_functions import *
 from .registry import preprocessor_registry
 
 tqdm.pandas()
@@ -68,7 +71,7 @@ class DataPreprocessor:
 
         # Log preprocessor files
         preprocessor_files = [
-            "src/preprocessor/data_preprocessor.py",
+            "src/preprocessor/preprocessor.py",
             "src/preprocessor/preprocessing_functions.py",
             "src/preprocessor/augmentation_functions.py",
             "src/preprocessor/registry.py"

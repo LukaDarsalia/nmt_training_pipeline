@@ -48,35 +48,24 @@ preprocessors:
       columns: ["en", "ka"]
       bracket_types: ["()"]  # ["()", "[]", "{}", "<>"]
 
-  # Concatenate multiple rows to create longer texts
-  - name: "concatenate_long_texts"
-    enabled: true
-    description: "Concatenate rows to create longer texts for better positional embeddings"
-    params:
-      concatenation_ratio: 0.2    # 20% of rows will be part of concatenations
-      min_group_size: 2           # Minimum rows to concatenate together
-      max_group_size: 4           # Maximum rows to concatenate together
-      separator: " "              # Separator between concatenated texts
-      strategy: "consecutive"     # 'consecutive' or 'random'
-
   # Fix encoding issues
   - name: "fix_encoding_issues"
-    enabled: true
+    enabled: false
     description: "Fix common encoding problems and special characters"
     params:
       columns: ["en", "ka"]
 
 # Augmentation functions create new data rows
 augmenters:
-  # Concatenate multiple rows to create longer texts (dataset restructuring)
-  - name: "concatenate_long_texts"
+  # DATASET RESTRUCTURING: Combine multiple rows into fewer longer texts
+  - name: "restructure_to_longer_texts"
     enabled: true
-    description: "Concatenate rows to create longer texts for better positional embeddings"
+    description: "DATASET RESTRUCTURING: Combine rows to create fewer, longer texts (reduces total rows)"
     params:
-      concatenation_ratio: 0.2    # 20% of rows will be part of concatenations
-      min_group_size: 2           # Minimum rows to concatenate together
-      max_group_size: 4           # Maximum rows to concatenate together
-      separator: " "              # Separator between concatenated texts
+      concatenation_ratio: 0.2    # 20% of rows will be part of restructuring
+      min_group_size: 2           # Minimum rows to combine together
+      max_group_size: 4           # Maximum rows to combine together
+      separator: " "              # Separator between combined texts
       strategy: "consecutive"     # 'consecutive' or 'random'
 
   # Add synthetic noise for robustness
@@ -128,13 +117,13 @@ augmenters:
     params:
       percentage: 0.01
 
-  # Simulate machine translation artifacts and errors
-  - name: "simulate_translation_artifacts"
+  # Simulate natural human writing variations
+  - name: "natural_writing_variations"
     enabled: true
-    description: "Simulate common machine translation errors for robustness"
+    description: "Simulate natural human writing variations and common errors"
     params:
       percentage: 0.02
-      artifact_types: ["word_order", "article_errors"]
+      variation_types: ["word_order", "article_errors", "informal_style"]
 
 # Global settings
 settings:
@@ -145,7 +134,7 @@ settings:
   log_samples: true
 
   # Maximum number of examples to log per function
-  max_log_samples: 10
+  max_log_samples: 20
 
   # Whether to validate data integrity after each step
   validate_steps: true
