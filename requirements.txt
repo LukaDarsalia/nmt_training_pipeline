@@ -15,3 +15,8 @@ sentence-transformers
 pyyaml
 click
 eng
+matplotlib
+seaborn
+nltk
+requests
+wordcloud

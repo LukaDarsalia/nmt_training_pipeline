@@ -1,0 +1,19 @@
+datasets:
+  - name: "english_georgian_corpora"
+    source_type: "huggingface"
+    source: "Darsala/english_georgian_corpora"
+    loader_function: "load_en_ka_corpora"
+    split: "train"
+    enabled: true
+    description: "English-Georgian parallel corpus"
+
+  - name: "flores_devtest"
+    source_type: "huggingface"
+    source: "openlanguagedata/flores_plus"
+    loader_function: "load_flores_devtest"
+    params:
+      ka_lang: "kat_Geor"
+      en_lang: "eng_Latn"
+      split: "devtest"
+    enabled: false
+    description: "FLORES development and test sets for Georgian-English"

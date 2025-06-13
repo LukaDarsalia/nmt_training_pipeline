@@ -1,0 +1,68 @@
+# Data Splitting Configuration
+# Configure how to split data into train/valid/test sets from various artifacts
+
+splits:
+  train:
+    sources:
+      - artifact: "preprocessed:v14" # Parallel
+        percentage: 90
+        seed: 42
+
+  valid:
+    sources:
+      - artifact: "preprocessed:v14" # Parallel
+        percentage: 10
+        seed: 42
+
+  test:
+    sources:
+      - artifact: "preprocessed:v15" # Flores
+        percentage: 100
+
+
+# Contamination checking settings
+contamination_check:
+  enabled: true
+  # Check for contamination between splits
+  check_pairs:
+    - source: "test"
+      target: "train"
+      action: "remove_from_target"  # Remove contaminated samples from train
+    - source: "valid"
+      target: "train"
+      action: "remove_from_target"
+
+  # Duplicate detection methods
+  methods:
+    exact_match:
+      enabled: true
+      columns: ["en", "ka"]  # Check both columns for exact matches
+
+    near_duplicate:
+      enabled: true
+      threshold: 0.95  # Similarity threshold (0-1)
+      algorithm: "minhash"  # Options: "minhash", "simhash", "embeddings"
+      minhash_params:
+        num_perm: 128  # Number of permutations for MinHash
+        threshold: 0.9  # Jaccard similarity threshold
+      columns: ["en", "ka"]  # Check both columns
+
+# Global settings
+settings:
+  # Random seed for reproducible splitting
+  random_seed: 42
+
+  # Whether to shuffle data before splitting
+  shuffle_before_split: true
+
+  # Whether to stratify by domain (if domain column exists)
+  stratify_by_domain: true
+
+  # Minimum samples per domain in each split (for stratification)
+  min_samples_per_domain: 10
+
+  # Whether to log sample distributions
+  log_distributions: true
+
+  # Whether to log contamination report
+  log_contamination_report: true
