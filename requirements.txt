@@ -11,3 +11,12 @@ datasets
 tqdm
 datasketch
 transformers[torch]
+sentence-transformers
+pyyaml
+click
+eng
+matplotlib
+seaborn
+nltk
+requests
+wordcloud

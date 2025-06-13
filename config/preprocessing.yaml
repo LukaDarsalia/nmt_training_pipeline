@@ -1,0 +1,136 @@
+# Data Preprocessing and Augmentation Configuration
+# Configure which preprocessing and augmentation functions to apply
+
+# Preprocessing functions modify existing data in-place
+preprocessors:
+  # Normalize various Unicode characters to standard ASCII
+  - name: "normalize_characters"
+    enabled: true
+    description: "Standardize dashes, apostrophes, and quotation marks"
+    params:
+      columns: ["en", "ka"]
+
+  # Remove extra whitespaces and normalize spacing
+  - name: "remove_extra_whitespaces"
+    enabled: true
+    description: "Clean up spacing and remove extra whitespace"
+    params:
+      columns: ["en", "ka"]
+
+  # Convert British English to American English
+  - name: "convert_to_american"
+    enabled: true
+    description: "Convert British English words to American equivalents"
+    params:
+      columns: ["en"]
+
+  # Convert English text to lowercase
+  - name: "lowercase_english"
+    enabled: true
+    description: "Convert English text to lowercase (good for EN→KA)"
+    params:
+      columns: ["en"]
+      preserve_proper_nouns: true  # Keep proper nouns capitalized
+
+  # Synchronize punctuation between English and Georgian
+  - name: "sync_punctuation"
+    enabled: true
+    description: "Ensure punctuation consistency between EN and KA"
+    params:
+      strategy: "add_missing"  # 'add_missing' or 'remove_all'
+      punctuation_marks: ".!?;:"
+
+  # Remove content within brackets
+  - name: "remove_brackets_content"
+    enabled: true
+    description: "Remove editorial notes and references in brackets"
+    params:
+      columns: ["en", "ka"]
+      bracket_types: ["()"]  # Can include: ["()", "[]", "{}", "<>"]
+      domains: ['ლექსიკოგრაფია']
+
+  # Fix encoding issues
+  - name: "fix_encoding_issues"
+    enabled: true
+    description: "Fix common encoding problems and special characters"
+    params:
+      columns: ["en", "ka"]
+
+  # Remove HTML tags (if present in data)
+  - name: "remove_html_tags"
+    enabled: true
+    description: "Remove HTML tags and decode HTML entities"
+    params:
+      columns: ["en", "ka"]
+
+# Augmentation functions create new data rows
+augmenters:
+  # DATASET RESTRUCTURING: Combine multiple rows into fewer longer texts
+  # NOTE: This REDUCES dataset size by combining rows
+  - name: "restructure_to_longer_texts"
+    enabled: false
+    description: "DATASET RESTRUCTURING: Combine rows to create fewer, longer texts (reduces total rows)"
+    params:
+      concatenation_ratio: 0.2    # 20% of rows will be part of restructuring
+      min_group_size: 2           # Minimum rows to combine together
+      max_group_size: 4           # Maximum rows to combine together
+      separator: " "              # Separator between combined texts
+      strategy: "consecutive"     # 'consecutive' or 'random'
+
+  # Add synthetic noise for robustness
+  - name: "synthetic_noise"
+    enabled: true
+    description: "Add character-level noise to improve robustness"
+    params:
+      percentage: 0.05        # 5% of examples
+      noise_types: ["delete", "insert", "substitute", "swap"]
+      char_ranges: ["a-z", "A-Z", "ა-ჰ"]
+      target_column: "en"     # Apply noise to English
+
+  # Concatenate consecutive sentences
+  - name: "sentence_concatenation"
+    enabled: true
+    description: "Create longer examples by concatenating sentence pairs"
+    params:
+      percentage: 0.03        # 3% of examples
+      min_n:      2
+      max_n:      5
+      separator:  " "
+
+  # Generate number copying examples
+  - name: "number_copying"
+    enabled: true
+    description: "Generate examples to teach number copying"
+    params:
+      num_examples: 5_000     # Generate 5000 number examples
+      number_types: ["integer", "float", "large", "small"]
+
+  # Generate Georgian text copying examples
+  - name: "georgian_text_copying"
+    enabled: true
+    description: "Generate examples where EN equals KA (from dataset Georgian texts)"
+    params:
+      percentage: 0.01        # 1% of dataset size
+      # Alternative: use num_examples: 1000 for fixed number
+
+  # Simulate natural human writing variations
+  - name: "natural_writing_variations"
+    enabled: true
+    description: "Simulate natural human writing variations and common errors"
+    params:
+      percentage: 0.02        # 2% of examples
+      variation_types: ["word_order", "article_errors", "informal_style"]
+
+# Global settings
+settings:
+  # Random seed for reproducible augmentation
+  random_seed: 42
+
+  # Whether to log intermediate results to wandb
+  log_samples: true
+
+  # Maximum number of examples to log per function
+  max_log_samples: 20
+
+  # Whether to validate data integrity after each step
+  validate_steps: true
