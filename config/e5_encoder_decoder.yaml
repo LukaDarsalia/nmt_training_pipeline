@@ -1,0 +1,33 @@
+# Advanced experiment using multilingual-e5-large with pretrained weights
+
+dataset:
+  train_file: "train.parquet"
+  valid_file: "valid.parquet"
+  test_file: "test.parquet"
+
+model:
+  architecture: "e5_m2m"
+  pretrained: true
+  tokenizer_name: "intfloat/multilingual-e5-large"
+
+trainer:
+  trainer_type: "seq2seq_trainer"
+  output_dir: "e5_experiment_output"
+  num_train_epochs: 1
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 1
+  learning_rate: 5e-5
+  weight_decay: 0.0
+  warmup_steps: 0
+  lr_scheduler_type: "cosine"
+  evaluation_strategy: "epoch"
+  save_strategy: "epoch"
+  logging_steps: 100
+  max_source_length: 128
+  max_target_length: 128
+  early_stopping_patience: 3
+  early_stopping_threshold: 0.0
+  metrics:
+    - bleu
+    - comet
