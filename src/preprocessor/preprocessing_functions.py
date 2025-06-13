@@ -4,11 +4,11 @@ Text Preprocessing Functions
 This module contains preprocessing functions that modify existing data in-place.
 These functions clean and normalize text without changing the number of rows.
 """
-
+import html
 import re
 # Suppress warnings for cleaner output
 import warnings
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import pandas as pd
 from tqdm import tqdm
@@ -112,24 +112,38 @@ def normalize_characters(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFra
     """
     columns = config.get('columns', ['en', 'ka'])
 
+    # Pre-compile replacement mapping for efficiency
+    replacements = {
+        # Dashes
+        '–': '-',  # En dash
+        '—': '-',  # Em dash
+        '−': '-',  # Minus sign
+        '‐': '-',  # Hyphen
+        '‑': '-',  # Non-breaking hyphen
+
+        # Apostrophes and single quotes
+        '`': "'",  # Grave accent
+        '´': "'",  # Acute accent
+        'ʻ': "'",  # Modifier letter turned comma
+        'ʼ': "'",  # Modifier letter apostrophe
+
+        # Double quotes
+        '„': '"',  # Double low-9 quotation mark
+        '«': '"',  # Left-pointing double angle quotation mark
+        '»': '"',  # Right-pointing double angle quotation mark
+        '‟': '"',  # Double high-reversed-9 quotation mark
+
+        # Other punctuation
+        '…': '...',  # Horizontal ellipsis
+    }
+
     def normalize_text(text: str) -> str:
-        if not text or pd.isna(text):
+        if not text or pd.isna(text) or text == 'nan':
             return text
 
-        # Normalize dashes
-        dashes = ['-', '–', '—', '−']
-        for dash in dashes:
-            text = text.replace(dash, "-")
-
-        # Normalize apostrophes
-        apostrophes = ["'", '`', '´', 'ʻ']
-        for apos in apostrophes:
-            text = text.replace(apos, "'")
-
-        # Normalize quotation marks
-        double_quotes = ['"', '"', '"', '„', '«', '»']
-        for quote in double_quotes:
-            text = text.replace(quote, '"')
+        # Apply all replacements
+        for old, new in replacements.items():
+            text = text.replace(old, new)
 
         return text
 
@@ -150,18 +164,23 @@ def remove_extra_whitespaces(df: pd.DataFrame, config: Dict[str, Any]) -> pd.Dat
     """
     columns = config.get('columns', ['en', 'ka'])
 
+    # Pre-compile regex patterns for efficiency
+    multiple_spaces = re.compile(r' {2,}')
+    multiple_newlines = re.compile(r'\n{2,}')
+    tab_pattern = re.compile(r'\t+')
+
     def clean_whitespace(text: str) -> str:
-        if not text or pd.isna(text):
+        if not text or pd.isna(text) or text == 'nan':
             return text
 
         # Replace multiple spaces with single space
-        text = re.sub(r' {2,}', ' ', text)
+        text = multiple_spaces.sub(' ', text)
 
         # Replace multiple newlines with single newline
-        text = re.sub(r'\n{2,}', '\n', text)
+        text = multiple_newlines.sub('\n', text)
 
         # Replace tabs with spaces
-        text = text.replace('\t', ' ')
+        text = tab_pattern.sub(' ', text)
 
         # Strip leading and trailing whitespace
         text = text.strip()
@@ -186,8 +205,11 @@ def lowercase_english(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     columns = config.get('columns', ['en'])
     preserve_proper_nouns = config.get('preserve_proper_nouns', False)
 
+    # Pre-compile pattern for sentence endings
+    sentence_end_pattern = re.compile(r'[.!?]\s*$')
+
     def lowercase_text(text: str) -> str:
-        if not text or pd.isna(text):
+        if not text or pd.isna(text) or text == 'nan':
             return text
 
         if preserve_proper_nouns:
@@ -198,11 +220,15 @@ def lowercase_english(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
 
             for i, word in enumerate(words):
                 # If it's the first word or after sentence-ending punctuation
-                if i == 0 or any(words[i-1].endswith(p) for p in '.!?'):
+                if i == 0 or (i > 0 and sentence_end_pattern.search(words[i-1])):
                     result_words.append(word.lower())
                 # If it starts with uppercase and might be a proper noun
-                elif word[0].isupper() and len(word) > 1:
-                    result_words.append(word)  # Keep as is
+                elif word and word[0].isupper() and len(word) > 1:
+                    # Check if entire word is uppercase (acronym)
+                    if word.isupper():
+                        result_words.append(word)  # Keep acronyms as is
+                    else:
+                        result_words.append(word)  # Keep proper nouns
                 else:
                     result_words.append(word.lower())
 
@@ -218,75 +244,94 @@ def sync_punctuation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """
     Ensure punctuation consistency between English and Georgian texts.
     If one text has ending punctuation and the other doesn't, add it.
+    If both texts end with different punctuation marks, replace the Georgian one
+    (or preferred language) to match the English punctuation (default behaviour).
 
     Args:
         df: Input DataFrame with 'en' and 'ka' columns
-        config: Configuration parameters with 'strategy' ('add_missing' or 'remove_all')
-
+        config: Configuration parameters
+            strategy: 'sync' (default) | 'remove_all'
+            punctuation_marks: iterable of accepted punctuation marks
+            prefer: which language to treat as authoritative if both have
+                    punctuation but they differ ('en' or 'ka')
     Returns:
         DataFrame with synchronized punctuation
     """
-    strategy = config.get('strategy', 'add_missing')  # 'add_missing' or 'remove_all'
-    punctuation_marks = config.get('punctuation_marks', '.!?;:')
+    strategy = config.get('strategy', 'sync')          # 'sync' or 'remove_all'
+    punctuation_marks = config.get(
+        'punctuation_marks',
+        '.!?;:,'
+    )
+    prefer_lang = config.get('prefer', 'en')           # 'en' or 'ka'
 
-    def get_ending_punctuation(text: str) -> str:
-        """Get the ending punctuation of a text."""
+    # Pre‑compile regex for trailing quotes/brackets/spaces
+    _trail_re = re.compile(r'[\s\'"”’»\)\]\}]*$')
+
+    def _split_trailing(text: str):
+        """Return (core, trailing) where trailing = quotes/spaces at end."""
+        m = _trail_re.search(text)
+        trailing = m.group(0) if m else ''
+        core = text[:-len(trailing)] if trailing else text
+        return core, trailing
+
+    def _get_end_punct(text: str) -> str:
+        """Return last punctuation mark (if any) ignoring trailing quotes."""
         if not text or pd.isna(text):
-            return ""
+            return ''
+        core, _ = _split_trailing(text.strip())
+        return core[-1] if core and core[-1] in punctuation_marks else ''
 
-        text = text.strip()
-        if text and text[-1] in punctuation_marks:
-            return text[-1]
-        return ""
-
-    def add_punctuation(text: str, punct: str) -> str:
-        """Add punctuation to text if it doesn't already have it."""
+    def _replace_or_add_punct(text: str, punct: str) -> str:
+        """Ensure text ends with punct (handling quotes)."""
         if not text or pd.isna(text):
             return text
+        text = str(text).rstrip()
+        core, trailing = _split_trailing(text)
+        if core and core[-1] in punctuation_marks:
+            core = core[:-1] + punct   # replace
+        else:
+            core = core + punct        # add
+        return core + trailing
 
-        text = text.strip()
-        if text and text[-1] not in punctuation_marks and punct:
-            return text + punct
-        return text
-
-    def remove_punctuation(text: str) -> str:
-        """Remove ending punctuation from text."""
+    def _remove_punct(text: str) -> str:
+        """Remove ending punctuation (before trailing quotes)."""
         if not text or pd.isna(text):
             return text
+        text = str(text).rstrip()
+        core, trailing = _split_trailing(text)
+        if core and core[-1] in punctuation_marks:
+            core = core[:-1]
+        return core + trailing
 
-        text = text.strip()
-        if text and text[-1] in punctuation_marks:
-            return text[:-1]
-        return text
+    def _sync_row(row):
+        en_txt, ka_txt = str(row['en']), str(row['ka'])
+        en_punct, ka_punct = _get_end_punct(en_txt), _get_end_punct(ka_txt)
 
-    def sync_row(row):
-        en_text = str(row['en']) if pd.notna(row['en']) else ""
-        ka_text = str(row['ka']) if pd.notna(row['ka']) else ""
+        if strategy == 'remove_all':
+            en_txt, ka_txt = _remove_punct(en_txt), _remove_punct(ka_txt)
 
-        en_punct = get_ending_punctuation(en_text)
-        ka_punct = get_ending_punctuation(ka_text)
-
-        if strategy == 'add_missing':
-            # If one has punctuation and the other doesn't, add it
-            if en_punct and not ka_punct:
-                ka_text = add_punctuation(ka_text, en_punct)
+        else:  # 'sync'
+            # When both missing nothing to do
+            if not en_punct and not ka_punct:
+                pass
+            # One side missing – copy from the other
+            elif en_punct and not ka_punct:
+                ka_txt = _replace_or_add_punct(ka_txt, en_punct)
             elif ka_punct and not en_punct:
-                en_text = add_punctuation(en_text, ka_punct)
-        elif strategy == 'remove_all':
-            # Remove all ending punctuation
-            en_text = remove_punctuation(en_text)
-            ka_text = remove_punctuation(ka_text)
+                en_txt = _replace_or_add_punct(en_txt, ka_punct)
+            # Both present but differ – enforce preferred language punctuation
+            elif en_punct != ka_punct:
+                if prefer_lang == 'en':
+                    ka_txt = _replace_or_add_punct(ka_txt, en_punct)
+                else:
+                    en_txt = _replace_or_add_punct(en_txt, ka_punct)
 
-        return pd.Series({'en': en_text, 'ka': ka_text})
+        return pd.Series({'en': en_txt, 'ka': ka_txt})
 
-    # Apply synchronization
-    tqdm.pandas(desc="Synchronizing punctuation")
-    synced = df.progress_apply(sync_row, axis=1)
-
-    # Update the dataframe
+    tqdm.pandas(desc="Synchronising punctuation")
+    synced = df.progress_apply(_sync_row, axis=1)
     result_df = df.copy()
-    result_df['en'] = synced['en']
-    result_df['ka'] = synced['ka']
+    result_df[['en', 'ka']] = synced[['en', 'ka']]
 
     return result_df
 
@@ -294,39 +339,56 @@ def sync_punctuation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
 @register_preprocessor("remove_brackets_content", "Remove content within brackets and parentheses")
 def remove_brackets_content(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """
-    Remove content within brackets, parentheses, or other specified delimiters.
-    Useful for removing editorial notes, references, etc.
+    Remove bracketed content in the specified columns.
+    Optionally limit the operation to rows whose `id` starts with one of the
+    dataset names given in config['datasets'].
 
-    Args:
-        df: Input DataFrame
-        config: Configuration with 'columns', 'bracket_types' (['()'], ['[]'], ['{}'])
+    Extra config keys:
+        - domains: List[str] of dataset prefixes (e.g. ['ლექსიკოგრაფია']).
 
-    Returns:
-        DataFrame with bracket content removed
+    Other keys are unchanged:
+        - columns
+        - bracket_types
     """
-    columns = config.get('columns', ['en', 'ka'])
-    bracket_types = config.get('bracket_types', ['()'])  # ['()', '[]', '{}']
+    columns       = config.get("columns", ["en", "ka"])
+    bracket_types = config.get("bracket_types", ["()"])      # ['()', '[]', '{}', '<>']
+    domains      = set(config.get("domains", []))          # new
+
+    # ── regex compile ───────────────────────────────────────────────────────────
+    patterns = {}
+    for bt in bracket_types:
+        if bt == "()":
+            patterns[bt] = re.compile(r"\([^)]*\)")
+        elif bt == "[]":
+            patterns[bt] = re.compile(r"\[[^\]]*\]")
+        elif bt == "{}":
+            patterns[bt] = re.compile(r"\{[^}]*\}")
+        elif bt == "<>":
+            patterns[bt] = re.compile(r"<[^>]*>")
+
+    whitespace_pattern = re.compile(r" {2,}")
 
     def remove_brackets(text: str) -> str:
-        if not text or pd.isna(text):
+        if not text or pd.isna(text) or text == "nan":
             return text
+        for pat in patterns.values():
+            text = pat.sub("", text)
+        return whitespace_pattern.sub(" ", text).strip()
 
-        for bracket_type in bracket_types:
-            if bracket_type == '()':
-                text = re.sub(r'\([^)]*\)', '', text)
-            elif bracket_type == '[]':
-                text = re.sub(r'\[[^\]]*\]', '', text)
-            elif bracket_type == '{}':
-                text = re.sub(r'\{[^}]*\}', '', text)
-            elif bracket_type == '<>':
-                text = re.sub(r'<[^>]*>', '', text)
+    # ── apply ───────────────────────────────────────────────────────────────────
+    if domains:
+        if "id" not in df.columns:
+            raise ValueError("Column 'id' is required when using 'datasets'.")
+        # mask rows whose id prefix matches any dataset name
+        print(domains)
+        mask = df["domain"].astype(str).isin(domains)
+        df_out = df.copy()
+        df_out.loc[mask, columns] = _process_dataframe_columns(
+            df_out.loc[mask], remove_brackets, columns
+        )[columns]
+        return df_out
 
-        # Clean up extra spaces
-        text = re.sub(r' {2,}', ' ', text)
-        text = text.strip()
-
-        return text
-
+    # fall-back: process the whole DataFrame
     return _process_dataframe_columns(df, remove_brackets, columns)
 
 
@@ -344,36 +406,95 @@ def fix_encoding_issues(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFram
     """
     columns = config.get('columns', ['en', 'ka'])
 
+    # Common encoding issues and their fixes
+    replacements = {
+        # Common UTF-8 decode errors
+        'â€™': "'",      # Right single quotation mark
+        'â€œ': '"',      # Left double quotation mark
+        'â€': '"',       # Right double quotation mark
+        'â€"': '—',      # Em dash
+        'â€"': '–',      # En dash
+        'Ã¡': 'á',       # a with acute
+        'Ã©': 'é',       # e with acute
+        'Ã­': 'í',       # i with acute
+        'Ã³': 'ó',       # o with acute
+        'Ãº': 'ú',       # u with acute
+        'Ã±': 'ñ',       # n with tilde
+        'Ã¼': 'ü',       # u with diaeresis
+        'Ã¤': 'ä',       # a with diaeresis
+        'Ã¶': 'ö',       # o with diaeresis
+        'Ã§': 'ç',       # c with cedilla
+        'Ã¨': 'è',       # e with grave
+        'Ã ': 'à',       # a with grave
+        'â€¦': '...',    # Ellipsis
+        'Â': '',         # Non-breaking space artifacts
+        'â€': '',        # Various artifacts
+        'Ââ': '',        # Double artifacts
+        '&nbsp;': ' ',   # HTML non-breaking space
+        '&amp;': '&',    # HTML ampersand
+        '&lt;': '<',     # HTML less than
+        '&gt;': '>',     # HTML greater than
+        '&quot;': '"',   # HTML quote
+        '&#39;': "'",    # HTML apostrophe
+    }
+
     def fix_text(text: str) -> str:
-        if not text or pd.isna(text):
+        if not text or pd.isna(text) or text == 'nan':
             return text
 
-        # Fix common encoding issues
-        replacements = {
-            'â€™': "'",      # Right single quotation mark
-            'â€œ': '"',      # Left double quotation mark
-            'â€': '"',       # Right double quotation mark
-            'â€"': '—',      # Em dash
-            'â€"': '–',      # En dash
-            'Ã¡': 'á',       # a with acute
-            'Ã©': 'é',       # e with acute
-            'Ã­': 'í',       # i with acute
-            'Ã³': 'ó',       # o with acute
-            'Ãº': 'ú',       # u with acute
-            'â€¦': '...',    # Ellipsis
-            'Â': '',         # Non-breaking space artifacts
-            'â€': '',        # Various artifacts
-        }
-
+        # Apply all replacements
         for bad, good in replacements.items():
             text = text.replace(bad, good)
 
-        # Remove or replace other problematic characters
-        text = text.replace('\ufeff', '')  # BOM
-        text = text.replace('\u200b', '')  # Zero width space
-        text = text.replace('\u200c', '')  # Zero width non-joiner
-        text = text.replace('\u200d', '')  # Zero width joiner
+        # Remove zero-width characters
+        zero_width_chars = [
+            '\ufeff',  # BOM
+            '\u200b',  # Zero width space
+            '\u200c',  # Zero width non-joiner
+            '\u200d',  # Zero width joiner
+            '\u200e',  # Left-to-right mark
+            '\u200f',  # Right-to-left mark
+            '\u202a',  # Left-to-right embedding
+            '\u202b',  # Right-to-left embedding
+            '\u202c',  # Pop directional formatting
+            '\u202d',  # Left-to-right override
+            '\u202e',  # Right-to-left override
+        ]
+
+        for char in zero_width_chars:
+            text = text.replace(char, '')
+
+        # Normalize whitespace after cleaning
+        text = re.sub(r'\s+', ' ', text)
+        text = text.strip()
 
         return text
 
     return _process_dataframe_columns(df, fix_text, columns)
+
+
+@register_preprocessor("remove_html_tags", "Remove HTML tags from text")
+def remove_html_tags(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Remove HTML tags and decode HTML entities.
+
+    Args:
+        df: Input DataFrame
+        config: Configuration parameters with 'columns'
+
+    Returns:
+        DataFrame with HTML tags removed
+    """
+    columns = config.get("columns", ["en", "ka"])
+
+    tag_re = re.compile(r'</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*?)?/?>')
+    ws_re = re.compile(r'\s+')
+
+    def clean(text: str) -> str:
+        if not text or pd.isna(text) or str(text).lower() == "nan":
+            return text
+        text = tag_re.sub(" ", str(text))  # drop real tags
+        text = html.unescape(text)  # decode &nbsp; etc.
+        return ws_re.sub(" ", text).strip()  # normalise spaces
+
+    return _process_dataframe_columns(df, clean, columns)

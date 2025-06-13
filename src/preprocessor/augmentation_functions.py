@@ -117,123 +117,52 @@ def synthetic_noise_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd
     return pd.DataFrame(augmented_data)
 
 
-@register_augmenter("sentence_concatenation", "Concatenate sentence pairs")
-def sentence_concatenation_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+@register_augmenter("sentence_concatenation", "Concatenate consecutive sentences")
+def sentence_concatenation_augmentation(
+    df: pd.DataFrame,
+    config: Dict[str, Any]
+) -> pd.DataFrame:
     """
-    Create augmented examples by concatenating consecutive sentence pairs.
+    Create augmented examples by concatenating *n* consecutive sentences.
 
     Args:
-        df: Input DataFrame
-        config: Configuration with 'percentage', 'separator'
+        df:      DataFrame with at least the columns ['en', 'ka', 'id'].
+        config:  {
+            'percentage': float,   # Probability to start a concatenation at a given row. (default 0.1)
+            'separator':  str,     # Token inserted between sentences.          (default ' ')
+            'min_n':      int,     # Minimum number of rows to concatenate.     (default 2)
+            'max_n':      int      # Maximum number of rows to concatenate.     (default = min_n)
+        }
 
     Returns:
-        DataFrame with concatenated sentence examples
+        DataFrame containing the new, concatenated examples.
     """
+    import random
     percentage = config.get('percentage', 0.1)
-    separator = config.get('separator', ' ')
+    separator  = config.get('separator', ' ')
+    min_n      = config.get('min_n', 2)
+    max_n      = config.get('max_n', min_n)
+
+    assert min_n >= 2 and max_n >= min_n, \
+        "`min_n` must be ≥ 2 and `max_n` must be ≥ min_n."
 
     augmented_data = []
+    total_len = len(df)
 
-    for idx, row in tqdm(df.iterrows(), total=len(df) - 1, desc="Concatenating sentences"):
-        if idx < len(df) - 1 and random.random() < percentage:
-            next_row = df.iloc[idx + 1]
-
-            new_row = row.copy()
-            new_row['en'] = str(row['en']) + separator + str(next_row['en'])
-            new_row['ka'] = str(row['ka']) + separator + str(next_row['ka'])
-            new_row['id'] = f"{row['id']}_concatenation"
-
-            augmented_data.append(new_row)
-
-    return pd.DataFrame(augmented_data)
-
-
-@register_augmenter("sentence_reversal", "Reverse word order in target sentences")
-def sentence_reversal_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Create augmented examples by reversing word order in target sentences.
-
-    Args:
-        df: Input DataFrame
-        config: Configuration with 'percentage', 'target_column'
-
-    Returns:
-        DataFrame with reversed sentence examples
-    """
-    percentage = config.get('percentage', 0.1)
-    target_column = config.get('target_column', 'ka')
-
-    def reverse_sentence(text: str) -> str:
-        """Reverse word order in sentence."""
-        return ' '.join(text.split()[::-1])
-
-    augmented_data = []
-
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Reversing sentences"):
+    for idx, row in tqdm(df.iterrows(),
+                         total=total_len,
+                         desc="Concatenating sentences"):
+        # decide whether to build an augmented example that starts at this row
         if random.random() < percentage:
-            new_row = row.copy()
-            new_row[target_column] = reverse_sentence(str(row[target_column]))
-            new_row['id'] = f"{row['id']}_reversed"
+            n = random.randint(min_n, max_n)
+            n = min(n, total_len - idx)          # keep slice inside the frame
 
-            augmented_data.append(new_row)
-
-    return pd.DataFrame(augmented_data)
-
-
-@register_augmenter("random_word_replacement", "Replace aligned words with random alternatives")
-def random_word_replacement_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Create augmented examples by replacing aligned words with random alternatives.
-
-    Args:
-        df: Input DataFrame
-        config: Configuration with 'percentage', 'lexicon'
-
-    Returns:
-        DataFrame with random word replacement examples
-    """
-    percentage = config.get('percentage', 0.1)
-    lexicon = config.get('lexicon', {})
-
-    if not lexicon:
-        print("Warning: No lexicon provided for random word replacement")
-        return pd.DataFrame()
-
-    def replace_with_random_word(source: str, target: str, lexicon: Dict[str, str]) -> Tuple[str, str]:
-        """Replace aligned words with random alternatives."""
-        source_words = source.split()
-        target_words = target.split()
-
-        # Find aligned words using lexicon
-        aligned_words = [
-            (sw, lexicon[sw.lower()])
-            for sw in source_words
-            if sw.lower() in lexicon and lexicon[sw.lower()] in target_words
-        ]
-
-        if aligned_words:
-            src_word, tgt_word = random.choice(aligned_words)
-            random_src_word = random.choice(list(lexicon.keys()))
-            random_tgt_word = lexicon[random_src_word]
-
-            # Replace the words
-            source = source.replace(src_word, random_src_word, 1)
-            target = target.replace(tgt_word, random_tgt_word, 1)
-
-        return source, target
-
-    augmented_data = []
-
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Replacing random words"):
-        if random.random() < percentage:
-            new_en, new_ka = replace_with_random_word(
-                str(row['en']), str(row['ka']), lexicon
-            )
+            rows_slice = df.iloc[idx: idx + n]   # the n consecutive rows
 
             new_row = row.copy()
-            new_row['en'] = new_en
-            new_row['ka'] = new_ka
-            new_row['id'] = f"{row['id']}_random_replace"
+            new_row['en'] = separator.join(rows_slice['en'].astype(str))
+            new_row['ka'] = separator.join(rows_slice['ka'].astype(str))
+            new_row['id'] = f"{row['id']}_concat{n}"
 
             augmented_data.append(new_row)
 
@@ -282,7 +211,12 @@ def number_copying_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.
         ("Score: {number}", "ქულა: {number}"),
         ("Price: ${number}", "ფასი: ${number}"),
         ("Year: {number}", "წელი: {number}"),
-        ("ID: {number}", "ID: {number}")
+        ("ID: {number}", "ID: {number}"),
+        ("Temperature: {number}°C", "ტემპერატურა: {number}°C"),
+        ("Distance: {number} km", "მანძილი: {number} კმ"),
+        ("Weight: {number} kg", "წონა: {number} კგ"),
+        ("Speed: {number} km/h", "სიჩქარე: {number} კმ/სთ"),
+        ("Percentage: {number}%", "პროცენტი: {number}%")
     ]
 
     for i in tqdm(range(num_examples), desc="Generating number copying examples"):
@@ -375,7 +309,7 @@ def georgian_text_copying_augmentation(df: pd.DataFrame, config: Dict[str, Any])
 
 
 @register_augmenter("restructure_to_longer_texts", "DATASET RESTRUCTURING: Combine multiple rows into fewer longer texts")
-def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+def restructure_to_longer_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """
     DATASET RESTRUCTURING OPERATION: Combine multiple consecutive rows to create fewer, longer texts.
     This REDUCES the total number of rows while creating longer training examples.
@@ -533,7 +467,7 @@ def concatenate_long_texts_augmentation(df: pd.DataFrame, config: Dict[str, Any]
 
 
 @register_augmenter("natural_writing_variations", "Simulate natural human writing variations and common errors")
-def simulate_translation_artifacts_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+def natural_writing_variations_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
     """
     Simulate natural human writing variations and common errors to improve model robustness.
     This includes typical variations like word order changes, missing articles, etc.
@@ -562,25 +496,36 @@ def simulate_translation_artifacts_augmentation(df: pd.DataFrame, config: Dict[s
     def introduce_article_errors(text: str) -> str:
         """Remove articles, simulating casual or non-native writing."""
         # Remove articles randomly (as people sometimes do in casual writing)
-        text = re.sub(r'\b(a|an|the)\s+', '', text, flags=re.IGNORECASE)
-        return text
+        # Only remove some articles, not all
+        words = text.split()
+        result_words = []
+        for word in words:
+            if word.lower() in ['a', 'an', 'the'] and random.random() < 0.7:
+                continue  # Skip this article
+            result_words.append(word)
+        return ' '.join(result_words)
 
     def introduce_informal_style(text: str) -> str:
         """Add informal writing patterns."""
         # Simple contractions and informal patterns
         informal_replacements = {
-            ' and ': ' & ',
+            'and': '&',
             'you are': "you're",
             'do not': "don't",
             'cannot': "can't",
-            'will not': "won't"
+            'will not': "won't",
+            'it is': "it's",
+            'that is': "that's",
+            'I am': "I'm"
         }
 
+        result = text
         for formal, informal in informal_replacements.items():
-            if formal in text.lower():
-                text = text.replace(formal, informal)
+            # Case-insensitive replacement
+            pattern = re.compile(r'\b' + re.escape(formal) + r'\b', re.IGNORECASE)
+            result = pattern.sub(informal, result)
 
-        return text
+        return result
 
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="Adding natural writing variations"):
         if random.random() < percentage:
