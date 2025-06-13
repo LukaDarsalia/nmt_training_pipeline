@@ -12,7 +12,7 @@ from transformers import (
     DataCollatorForSeq2Seq,
     EarlyStoppingCallback,
     Seq2SeqTrainer,
-    TrainingArguments,
+    Seq2SeqTrainingArguments,
 )
 
 from .models import *  # register model functions
@@ -26,7 +26,7 @@ def default_trainer(
     tokenizer: Any,
     train_dataset: Any,
     eval_dataset: Any,
-    training_args: TrainingArguments,
+    training_args: Seq2SeqTrainingArguments,
 ) -> Seq2SeqTrainer:
     """Create a standard :class:`~transformers.Seq2SeqTrainer`."""
 
@@ -159,10 +159,10 @@ class NMTTrainer:
             "report_to": "wandb",
         }
 
-        valid_args = inspect.signature(TrainingArguments.__init__).parameters
+        valid_args = inspect.signature(Seq2SeqTrainingArguments.__init__).parameters
         filtered_args = {k: v for k, v in arg_values.items() if k in valid_args}
 
-        training_args = TrainingArguments(**filtered_args)
+        training_args = Seq2SeqTrainingArguments(**filtered_args)
 
         metrics = cfg.get("metrics", [])
 
