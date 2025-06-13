@@ -1,11 +1,11 @@
 datasets:
-#  - name: "english_georgian_corpora"
-#    source_type: "huggingface"
-#    source: "Darsala/english_georgian_corpora"
-#    loader_function: "load_en_ka_corpora"
-#    split: "train"
-#    enabled: true
-#    description: "English-Georgian parallel corpus"
+  - name: "english_georgian_corpora"
+    source_type: "huggingface"
+    source: "Darsala/english_georgian_corpora"
+    loader_function: "load_en_ka_corpora"
+    split: "train"
+    enabled: true
+    description: "English-Georgian parallel corpus"
     
   - name: "flores_devtest" 
     source_type: "huggingface"
