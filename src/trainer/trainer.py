@@ -1,6 +1,7 @@
 """NMT training pipeline with registry-based extensibility."""
 
 import os
+import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -142,21 +143,26 @@ class NMTTrainer:
         output_dir = cfg.get("output_dir", "model_output")
         os.makedirs(output_dir, exist_ok=True)
 
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            num_train_epochs=cfg.get("num_train_epochs", 3),
-            per_device_train_batch_size=cfg.get("per_device_train_batch_size", 8),
-            per_device_eval_batch_size=cfg.get("per_device_eval_batch_size", 8),
-            gradient_accumulation_steps=cfg.get("gradient_accumulation_steps", 1),
-            learning_rate=cfg.get("learning_rate", 5e-5),
-            weight_decay=cfg.get("weight_decay", 0.0),
-            warmup_steps=cfg.get("warmup_steps", 0),
-            lr_scheduler_type=cfg.get("lr_scheduler_type", "cosine"),
-            evaluation_strategy=cfg.get("evaluation_strategy", "epoch"),
-            save_strategy=cfg.get("save_strategy", "epoch"),
-            logging_steps=cfg.get("logging_steps", 100),
-            report_to="wandb",
-        )
+        arg_values = {
+            "output_dir": output_dir,
+            "num_train_epochs": cfg.get("num_train_epochs", 3),
+            "per_device_train_batch_size": cfg.get("per_device_train_batch_size", 8),
+            "per_device_eval_batch_size": cfg.get("per_device_eval_batch_size", 8),
+            "gradient_accumulation_steps": cfg.get("gradient_accumulation_steps", 1),
+            "learning_rate": cfg.get("learning_rate", 5e-5),
+            "weight_decay": cfg.get("weight_decay", 0.0),
+            "warmup_steps": cfg.get("warmup_steps", 0),
+            "lr_scheduler_type": cfg.get("lr_scheduler_type", "cosine"),
+            "evaluation_strategy": cfg.get("evaluation_strategy", "epoch"),
+            "save_strategy": cfg.get("save_strategy", "epoch"),
+            "logging_steps": cfg.get("logging_steps", 100),
+            "report_to": "wandb",
+        }
+
+        valid_args = inspect.signature(TrainingArguments.__init__).parameters
+        filtered_args = {k: v for k, v in arg_values.items() if k in valid_args}
+
+        training_args = TrainingArguments(**filtered_args)
 
         metrics = cfg.get("metrics", [])
 
