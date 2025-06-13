@@ -12,6 +12,7 @@ from transformers import (
     EncoderDecoderModel,
     MarianConfig,
     MarianModel,
+    MarianMTModel,
 )
 
 from .registry import register_model
@@ -84,29 +85,43 @@ class DualTokenizer:
 
 @register_model(
     "marian_custom",
-    "Marian encoder-decoder from scratch with separate tokenizers",
+    "MarianMT model with optional random initialization and dual tokenizers",
 )
-def load_marian_custom_model(config: Dict[str, Any]) -> Tuple[EncoderDecoderModel, DualTokenizer]:
-    """Create a Marian encoder-decoder model initialized from scratch."""
+def load_marian_custom_model(config: Dict[str, Any]) -> Tuple[MarianMTModel, DualTokenizer]:
+    """Create a :class:`~transformers.MarianMTModel` using custom tokenizers.
 
-    encoder_name = config.get("encoder_name", "Helsinki-NLP/opus-mt-en-de")
-    decoder_name = config.get("decoder_name", "Helsinki-NLP/opus-mt-en-de")
+    Parameters
+    ----------
+    config:
+        Model configuration loaded from the YAML file.
+
+    Returns
+    -------
+    Tuple[MarianMTModel, DualTokenizer]
+        The instantiated model and a wrapper holding encoder and decoder
+        tokenizers.
+    """
+
+    model_name = config.get("name", "Helsinki-NLP/opus-mt-en-de")
+    pretrained = config.get("pretrained", True)
     enc_tokenizer_name = config.get("encoder_tokenizer")
     dec_tokenizer_name = config.get("decoder_tokenizer")
+
+    if enc_tokenizer_name is None or dec_tokenizer_name is None:
+        raise ValueError(
+            "encoder_tokenizer and decoder_tokenizer must be specified for marian_custom"
+        )
 
     enc_tokenizer = AutoTokenizer.from_pretrained(enc_tokenizer_name)
     dec_tokenizer = AutoTokenizer.from_pretrained(dec_tokenizer_name)
     tokenizer = DualTokenizer(enc_tokenizer, dec_tokenizer)
 
-    encoder_cfg = MarianConfig.from_pretrained(encoder_name)
-    decoder_cfg = MarianConfig.from_pretrained(decoder_name)
-    decoder_cfg.is_decoder = True
-    decoder_cfg.add_cross_attention = True
-
-    encoder = MarianModel(encoder_cfg)
-    decoder = MarianModel(decoder_cfg)
-
-    model = EncoderDecoderModel(encoder=encoder, decoder=decoder)
+    if pretrained:
+        model = MarianMTModel.from_pretrained(model_name)
+    else:
+        model_cfg = MarianConfig.from_pretrained(model_name)
+        model_cfg.vocab_size = max(len(enc_tokenizer), len(dec_tokenizer))
+        model = MarianMTModel(model_cfg)
 
     if model.config.decoder_start_token_id is None:
         model.config.decoder_start_token_id = dec_tokenizer.cls_token_id

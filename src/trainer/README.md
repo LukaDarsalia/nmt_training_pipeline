@@ -8,8 +8,8 @@ YAML file.
 
 - **Model Registry** – Register different model creation functions. Default
   options include loading any seq2seq model via the `auto` architecture,
-  a `marian_custom` option for Marian models built from scratch with custom
-  tokenizers and an `e5_m2m` encoder-decoder using multilingual-e5-large
+  a `marian_custom` option which creates a `MarianMTModel` with custom
+  tokenizers, and an `e5_m2m` encoder-decoder using multilingual-e5-large
   weights.
 - **Trainer Registry** – Swap out the training loop implementation. By default
   the pipeline uses `Seq2SeqTrainer` with an AdamW optimizer and a cosine

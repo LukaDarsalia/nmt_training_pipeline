@@ -7,8 +7,7 @@ dataset:
 
 model:
   architecture: "marian_custom"
-  encoder_name: "Helsinki-NLP/opus-mt-en-de"
-  decoder_name: "Helsinki-NLP/opus-mt-en-de"
+  name: "Helsinki-NLP/opus-mt-en-de"
   encoder_tokenizer: "RichNachos/georgian-corpus-tokenizer-test"
   decoder_tokenizer: "Helsinki-NLP/opus-mt-en-de"
   pretrained: false
