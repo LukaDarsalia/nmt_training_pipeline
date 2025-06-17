@@ -2,9 +2,10 @@
 Evaluator Registry
 
 Registry for different evaluation metrics and strategies.
+Updated to support COMET metrics that require source sentences.
 """
 
-from typing import Dict, Any, List, Callable
+from typing import Dict, Any, List, Callable, Optional
 from .base import BaseRegistry
 
 
@@ -70,7 +71,7 @@ class EvaluatorRegistry(BaseRegistry):
 
         Example:
             evaluator_configs = [
-                {'name': 'bleu', 'config': {}},
+                {'name': 'sacrebleu', 'config': {}},
                 {'name': 'chrf', 'config': {'word_order': 2}},
                 {'name': 'georgian_comet', 'config': {'batch_size': 16}}
             ]
@@ -84,13 +85,16 @@ class EvaluatorRegistry(BaseRegistry):
             evaluator = self.create_evaluator(eval_name, eval_params)
             evaluators.append((eval_name, evaluator))
 
-        def combined_evaluate(predictions: List[str], references: List[str]) -> Dict[str, Any]:
+        def combined_evaluate(predictions: List[str],
+                            references: List[str],
+                            sources: Optional[List[str]] = None) -> Dict[str, Any]:
             """
             Compute all registered metrics.
 
             Args:
                 predictions: List of predicted translations
                 references: List of reference translations
+                sources: List of source sentences (optional, required for COMET)
 
             Returns:
                 Dictionary with all computed metrics
@@ -99,12 +103,22 @@ class EvaluatorRegistry(BaseRegistry):
 
             for eval_name, evaluator in evaluators:
                 try:
-                    metric_results = evaluator(predictions, references)
+                    # Check if evaluator needs source sentences (like COMET)
+                    if 'comet' in eval_name.lower() and sources is not None:
+                        # Pass sources to COMET evaluator
+                        metric_results = evaluator(predictions, references, sources)
+                    else:
+                        # Standard evaluators that only need predictions and references
+                        metric_results = evaluator(predictions, references)
 
                     # If evaluator returns dict, merge with prefix
                     if isinstance(metric_results, dict):
                         for key, value in metric_results.items():
-                            results[f"{eval_name}_{key}"] = value
+                            # Avoid double prefixing for some metrics
+                            if key.startswith(eval_name):
+                                results[key] = value
+                            else:
+                                results[f"{eval_name}_{key}"] = value
                     else:
                         # If evaluator returns single value
                         results[eval_name] = metric_results

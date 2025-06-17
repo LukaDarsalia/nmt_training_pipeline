@@ -1,10 +1,19 @@
 # Pretrained Marian Model Fine-tuning Configuration
-# This configuration fine-tunes a pretrained Marian model
+# This configuration fine-tunes a pretrained multilingual model
 
 # Model configuration
 model:
   type: "marian_pretrained"  # Use pretrained Marian model
-  model_name: "Helsinki-NLP/opus-mt-en-ka"  # HuggingFace model name
+  # Valid option 1: Use Facebook's M2M100 (supports English to Georgian)
+  model_name: "facebook/m2m100_418M"  # Multilingual model with Georgian support
+
+  # Alternative options (uncomment to use):
+  # model_name: "facebook/mbart-large-50-many-to-many-mmt"  # mBART with Georgian (ka_GE)
+  # model_name: "alirezamsh/small100"  # Smaller multilingual model with Georgian
+
+  # Note: For M2M100, we need to set forced_bos_token_id for target language
+  # Georgian language code is "ka" in M2M100
+  target_lang: "ka"  # Target language code for M2M100
 
   # Generation configuration
   generation_config:
@@ -20,6 +29,8 @@ data:
   source_column: "en"
   target_column: "ka"
   target_prefix: ""
+  # Special handling for multilingual models
+  multilingual_model: true
 
 # Trainer configuration
 trainer:
@@ -78,25 +89,23 @@ trainer:
     num_beams: 1
     eval_num_beams: 5
 
-  # Evaluation metrics
+  # Evaluation metrics - Only SacreBLEU, chrF++, and Georgian COMET
   evaluation:
     evaluators:
       - name: "sacrebleu"
         config: {}
       - name: "chrf"
         config:
-          word_order: 2
-      - name: "meteor"
-        config: {}
-      - name: "rouge"
-        config: {}
+          word_order: 2  # chrF++
       - name: "georgian_comet"
         config:
-          batch_size: 8
+          model_name: "Darsala/georgian_comet"  # Your fine-tuned Georgian COMET model
+          batch_size: 16
           device: "cuda"
+          gpus: 1
 
 # Experiment metadata
 experiment:
-  name: "pretrained_marian_finetune"
-  description: "Fine-tuning pretrained Marian model on our dataset"
-  tags: ["fine-tuning", "marian", "pretrained"]
+  name: "pretrained_multilingual_finetune"
+  description: "Fine-tuning pretrained multilingual model (M2M100) for EN→KA translation"
+  tags: ["fine-tuning", "multilingual", "m2m100", "georgian"]

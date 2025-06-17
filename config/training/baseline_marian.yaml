@@ -1,5 +1,5 @@
-# Baseline Marian Model Training Configuration
-# This configuration trains a custom Marian model from scratch
+# Baseline Marian Model Training Configuration with COMET
+# This configuration trains a custom Marian model from scratch using COMET evaluation
 
 # Model configuration
 model:
@@ -60,9 +60,9 @@ trainer:
     num_workers: 4
     seed: 42
 
-    # Best model tracking
-    metric_for_best_model: "eval_loss"
-    greater_is_better: false
+    # Best model tracking - using COMET as the main metric
+    metric_for_best_model: "eval_georgian_comet_comet"
+    greater_is_better: true
 
     # Label smoothing
     label_smoothing_factor: 0.1
@@ -88,21 +88,23 @@ trainer:
     num_beams: 1
     eval_num_beams: 5
 
-  # Evaluation metrics
+  # Evaluation metrics - Only SacreBLEU, chrF++, and Georgian COMET
   evaluation:
     evaluators:
       - name: "sacrebleu"
         config: {}
       - name: "chrf"
         config:
-          word_order: 2
-      - name: "meteor"
-        config: {}
-      - name: "rouge"
-        config: {}
+          word_order: 2  # chrF++
+      - name: "georgian_comet"
+        config:
+          model_name: "Darsala/georgian_comet"  # Your fine-tuned Georgian COMET model
+          batch_size: 16
+          device: "cuda"
+          gpus: 1
 
 # Experiment metadata
 experiment:
-  name: "baseline_marian"
-  description: "Baseline Marian model with standard architecture"
-  tags: ["baseline", "marian", "custom"]
+  name: "baseline_marian_with_comet"
+  description: "Baseline Marian model with Georgian COMET evaluation"
+  tags: ["baseline", "marian", "custom", "comet", "georgian"]

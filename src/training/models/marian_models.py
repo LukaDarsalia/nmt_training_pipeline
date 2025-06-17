@@ -2,28 +2,31 @@
 Marian Model Implementations
 
 Provides various Marian-based model configurations including pretrained models,
-custom architectures, and randomly initialized models.
+custom architectures, and multilingual models.
 """
 
 from typing import Dict, Any, Tuple
+
 import torch
 from transformers import (
     MarianConfig,
     MarianMTModel,
-    MarianTokenizer,
+    M2M100ForConditionalGeneration,
+    MBartForConditionalGeneration,
     GenerationConfig,
     DataCollatorForSeq2Seq,
     PreTrainedTokenizer
 )
+
 from ..registry.model_registry import register_model
 
 
-@register_model("marian_pretrained", "Load pretrained Marian NMT model from HuggingFace")
+@register_model("marian_pretrained", "Load pretrained Marian/multilingual NMT model from HuggingFace")
 def create_marian_pretrained(config: Dict[str, Any],
                              tokenizer: PreTrainedTokenizer) -> Tuple[
-    MarianMTModel, GenerationConfig, DataCollatorForSeq2Seq]:
+    torch.nn.Module, GenerationConfig, DataCollatorForSeq2Seq]:
     """
-    Create a pretrained Marian model.
+    Create a pretrained Marian or multilingual model.
 
     Args:
         config: Model configuration containing 'model_name' key
@@ -32,16 +35,54 @@ def create_marian_pretrained(config: Dict[str, Any],
     Returns:
         Tuple of (model, generation_config, data_collator)
     """
-    model_name = config.get('model_name', 'Helsinki-NLP/opus-mt-en-ka')
+    model_name = config.get('model_name', 'facebook/m2m100_418M')
+    target_lang = config.get('target_lang', 'ka')  # Georgian
 
-    # Load pretrained model
-    model = MarianMTModel.from_pretrained(model_name)
+    # Determine model type based on model name
+    if 'm2m100' in model_name.lower():
+        # M2M100 multilingual model
+        model = M2M100ForConditionalGeneration.from_pretrained(model_name)
 
-    # Create generation config
-    generation_config = GenerationConfig.from_model_config(model.config)
+        # Create generation config for M2M100
+        generation_config = GenerationConfig.from_model_config(model.config)
+
+        # Set forced_bos_token_id for target language (Georgian)
+        if hasattr(tokenizer, 'get_lang_id'):
+            try:
+                target_lang_id = tokenizer.get_lang_id(target_lang)
+                generation_config.forced_bos_token_id = target_lang_id
+                print(f"Set forced_bos_token_id to {target_lang_id} for language '{target_lang}'")
+            except Exception as e:
+                print(f"Warning: Could not set target language ID for '{target_lang}': {e}")
+
+    elif 'mbart' in model_name.lower():
+        # mBART multilingual model
+        model = MBartForConditionalGeneration.from_pretrained(model_name)
+
+        # Create generation config for mBART
+        generation_config = GenerationConfig.from_model_config(model.config)
+
+        # Set forced_bos_token_id for target language
+        if hasattr(tokenizer, 'lang_code_to_id'):
+            target_lang_code = f"{target_lang}_GE"  # Georgian: ka_GE
+            if target_lang_code in tokenizer.lang_code_to_id:
+                target_lang_id = tokenizer.lang_code_to_id[target_lang_code]
+                generation_config.forced_bos_token_id = target_lang_id
+                print(f"Set forced_bos_token_id to {target_lang_id} for language '{target_lang_code}'")
+            else:
+                print(f"Warning: Language code '{target_lang_code}' not found in tokenizer")
+
+    else:
+        # Standard Marian model
+        model = MarianMTModel.from_pretrained(model_name)
+        generation_config = GenerationConfig.from_model_config(model.config)
 
     # Update generation config with custom parameters
     generation_config.update(**config.get('generation_config', {}))
+
+    # Move to device if specified
+    device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
 
     # Create data collator
     data_collator = DataCollatorForSeq2Seq(
@@ -149,6 +190,60 @@ def create_marian_finetuned(config: Dict[str, Any],
     # Create generation config
     generation_config = GenerationConfig.from_model_config(marian_config)
     generation_config.update(**config.get('generation_config', {}))
+
+    # Create data collator
+    data_collator = DataCollatorForSeq2Seq(
+        tokenizer,
+        model=model,
+        padding=True
+    )
+
+    return model, generation_config, data_collator
+
+
+@register_model("m2m100_multilingual", "M2M100 multilingual translation model")
+def create_m2m100_multilingual(config: Dict[str, Any],
+                               tokenizer: PreTrainedTokenizer) -> Tuple[
+    M2M100ForConditionalGeneration, GenerationConfig, DataCollatorForSeq2Seq]:
+    """
+    Create M2M100 multilingual model specifically configured for translation.
+
+    Args:
+        config: Model configuration
+        tokenizer: M2M100Tokenizer
+
+    Returns:
+        Tuple of (model, generation_config, data_collator)
+    """
+    model_name = config.get('model_name', 'facebook/m2m100_418M')
+    source_lang = config.get('source_lang', 'en')
+    target_lang = config.get('target_lang', 'ka')
+
+    # Load model
+    model = M2M100ForConditionalGeneration.from_pretrained(model_name)
+
+    # Set source language in tokenizer
+    if hasattr(tokenizer, 'src_lang'):
+        tokenizer.src_lang = source_lang
+
+    # Create generation config
+    generation_config = GenerationConfig.from_model_config(model.config)
+
+    # Set forced_bos_token_id for target language
+    if hasattr(tokenizer, 'get_lang_id'):
+        try:
+            target_lang_id = tokenizer.get_lang_id(target_lang)
+            generation_config.forced_bos_token_id = target_lang_id
+            print(f"M2M100: Set target language to '{target_lang}' (ID: {target_lang_id})")
+        except Exception as e:
+            print(f"Warning: Could not set target language '{target_lang}': {e}")
+
+    # Update with custom generation parameters
+    generation_config.update(**config.get('generation_config', {}))
+
+    # Move to device if specified
+    device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
 
     # Create data collator
     data_collator = DataCollatorForSeq2Seq(

@@ -5,16 +5,16 @@ Provides various callbacks for training including early stopping,
 prediction logging, and other monitoring utilities.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
+
 import pandas as pd
-import torch
+import wandb
 from transformers import (
     TrainerCallback,
     EarlyStoppingCallback,
     PreTrainedTokenizer
 )
 from transformers.integrations import WandbCallback
-import wandb
 
 
 class WandbPredictionProgressCallback(WandbCallback):

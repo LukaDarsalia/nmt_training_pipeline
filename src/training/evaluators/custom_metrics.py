@@ -1,13 +1,12 @@
 """
 Custom Evaluation Metrics
 
-Provides custom evaluation metrics including Georgian COMET model and other
-specialized metrics for machine translation evaluation.
+Provides only the Georgian COMET model for MT evaluation.
+Includes helper metrics for fallback scenarios.
 """
 
 from typing import Dict, Any, List, Callable
-import torch
-from transformers import AutoTokenizer, AutoModel
+
 from ..registry.evaluator_registry import register_evaluator
 
 
@@ -18,6 +17,10 @@ def create_georgian_comet_evaluator(config: Dict[str, Any]) -> Callable:
 
     Args:
         config: Configuration parameters for Georgian COMET
+            - model_name: str, default "Darsala/georgian_comet"
+            - batch_size: int, default 16
+            - device: str, default "cuda" if available else "cpu"
+            - gpus: int, default 1
 
     Returns:
         Georgian COMET evaluation function
@@ -25,194 +28,126 @@ def create_georgian_comet_evaluator(config: Dict[str, Any]) -> Callable:
     # Configuration parameters
     model_name = config.get("model_name", "Darsala/georgian_comet")
     batch_size = config.get("batch_size", 16)
-    device = config.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+    device = config.get("device", "cuda")
+    gpus = config.get("gpus", 1)
 
-    # Load the model and tokenizer
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModel.from_pretrained(model_name)
-        model = model.to(device)
-        model.eval()
-    except Exception as e:
-        print(f"Warning: Could not load Georgian COMET model: {e}")
-        print("Falling back to simple sentence length ratio evaluation")
+    # Initialize model variable
+    comet_model = None
 
-        def fallback_evaluate(predictions: List[str], references: List[str]) -> Dict[str, float]:
-            """Fallback evaluation using simple metrics."""
-            if not predictions or not references:
-                return {"georgian_comet": 0.0}
-
-            # Simple length ratio as fallback
-            ratios = []
-            for pred, ref in zip(predictions, references):
-                pred_len = len(pred.split())
-                ref_len = len(ref.split())
-                if ref_len > 0:
-                    ratio = min(pred_len / ref_len, ref_len / pred_len)
-                else:
-                    ratio = 0.0
-                ratios.append(ratio)
-
-            return {"georgian_comet": sum(ratios) / len(ratios)}
-
-        return fallback_evaluate
-
-    def evaluate_georgian_comet(predictions: List[str], references: List[str]) -> Dict[str, float]:
+    def evaluate_georgian_comet(predictions: List[str], references: List[str], sources: List[str] = None) -> Dict[str, float]:
         """
         Compute Georgian COMET score.
 
         Args:
             predictions: List of predicted translations
             references: List of reference translations
+            sources: List of source sentences (required for COMET)
 
         Returns:
             Dictionary with Georgian COMET score
         """
+        nonlocal comet_model
+
         if not predictions or not references:
-            return {"georgian_comet": 0.0}
+            return {"comet": 0.0}
 
-        scores = []
+        # If sources not provided, use empty sources (though this is not ideal for COMET)
+        if sources is None:
+            print("Warning: No source sentences provided for COMET evaluation. Using empty sources.")
+            sources = [""] * len(predictions)
 
-        # Process in batches
-        for i in range(0, len(predictions), batch_size):
-            batch_predictions = predictions[i:i + batch_size]
-            batch_references = references[i:i + batch_size]
+        if len(sources) != len(predictions) or len(predictions) != len(references):
+            print(f"Warning: Mismatched lengths - sources: {len(sources)}, predictions: {len(predictions)}, references: {len(references)}")
+            min_len = min(len(sources), len(predictions), len(references))
+            sources = sources[:min_len]
+            predictions = predictions[:min_len]
+            references = references[:min_len]
 
-            # Prepare input for COMET model
-            # Note: This is a simplified implementation
-            # The actual COMET model might require different input format
+        try:
+            # Load COMET model if not already loaded
+            if comet_model is None:
+                try:
+                    from comet import download_model, load_from_checkpoint
+
+                    print(f"Loading COMET model: {model_name}")
+                    model_path = download_model(model_name)
+                    comet_model = load_from_checkpoint(model_path)
+                    print("Georgian COMET model loaded successfully")
+
+                except Exception as e:
+                    print(f"Error loading Georgian COMET model: {e}")
+                    print("Falling back to simple length ratio evaluation")
+                    return _fallback_evaluation(predictions, references)
+
+            # Prepare data in COMET format
+            data = []
+            for src, pred, ref in zip(sources, predictions, references):
+                data.append({
+                    "src": str(src),
+                    "mt": str(pred),
+                    "ref": str(ref)
+                })
+
+            # Generate COMET scores
             try:
-                # Tokenize the input
-                inputs = []
-                for pred, ref in zip(batch_predictions, batch_references):
-                    # Combine prediction and reference for COMET evaluation
-                    combined = f"{pred} [SEP] {ref}"
-                    inputs.append(combined)
+                # Use CPU if GPU not available or specified
+                if device == "cpu":
+                    model_output = comet_model.predict(data, batch_size=batch_size, gpus=0)
+                else:
+                    model_output = comet_model.predict(data, batch_size=batch_size, gpus=gpus)
 
-                # Tokenize and encode
-                encoded = tokenizer(
-                    inputs,
-                    padding=True,
-                    truncation=True,
-                    max_length=512,
-                    return_tensors="pt"
-                )
-                encoded = {k: v.to(device) for k, v in encoded.items()}
+                # Extract system-level score
+                system_score = float(model_output.system_score)
 
-                # Get model predictions
-                with torch.no_grad():
-                    outputs = model(**encoded)
+                # Also return individual scores for debugging if needed
+                individual_scores = [float(score) for score in model_output.scores]
 
-                    # Extract scores (this might need adjustment based on actual model)
-                    # For now, we'll use the mean of the last hidden state as a proxy score
-                    hidden_states = outputs.last_hidden_state
-                    batch_scores = torch.mean(hidden_states, dim=1).mean(dim=1)
-
-                    # Normalize scores to 0-1 range
-                    batch_scores = torch.sigmoid(batch_scores)
-                    scores.extend(batch_scores.cpu().tolist())
+                return {
+                    "comet": system_score,
+                    "comet_mean": sum(individual_scores) / len(individual_scores),
+                    "comet_std": _calculate_std(individual_scores)
+                }
 
             except Exception as e:
-                print(f"Warning: Error computing COMET scores for batch: {e}")
-                # Fallback to simple score for this batch
-                batch_scores = [0.5] * len(batch_predictions)
-                scores.extend(batch_scores)
+                print(f"Error computing COMET scores: {e}")
+                return _fallback_evaluation(predictions, references)
 
-        # Return average score
-        avg_score = sum(scores) / len(scores) if scores else 0.0
-        return {"georgian_comet": avg_score}
+        except ImportError:
+            print("COMET library not installed. Install with: pip install unbabel-comet")
+            return _fallback_evaluation(predictions, references)
+        except Exception as e:
+            print(f"Unexpected error in Georgian COMET evaluation: {e}")
+            return _fallback_evaluation(predictions, references)
 
-    return evaluate_georgian_comet
-
-
-@register_evaluator("length_ratio", "Simple length ratio evaluation")
-def create_length_ratio_evaluator(config: Dict[str, Any]) -> Callable:
-    """
-    Create a simple length ratio evaluator.
-
-    Args:
-        config: Configuration parameters
-
-    Returns:
-        Length ratio evaluation function
-    """
-
-    def evaluate_length_ratio(predictions: List[str], references: List[str]) -> Dict[str, float]:
-        """
-        Compute length ratio between predictions and references.
-
-        Args:
-            predictions: List of predicted translations
-            references: List of reference translations
-
-        Returns:
-            Dictionary with length ratio metrics
-        """
+    def _fallback_evaluation(predictions: List[str], references: List[str]) -> Dict[str, float]:
+        """Fallback evaluation using simple metrics."""
         if not predictions or not references:
-            return {"length_ratio": 0.0, "length_difference": 0.0}
+            return {"comet": 0.0, "comet_mean": 0.0, "comet_std": 0.0}
 
+        # Simple length ratio as fallback
         ratios = []
-        differences = []
-
         for pred, ref in zip(predictions, references):
             pred_len = len(pred.split())
             ref_len = len(ref.split())
-
             if ref_len > 0:
-                ratio = pred_len / ref_len
-                ratios.append(ratio)
+                ratio = min(pred_len / ref_len, ref_len / pred_len)
             else:
-                ratios.append(0.0)
+                ratio = 0.0
+            ratios.append(ratio)
 
-            differences.append(abs(pred_len - ref_len))
-
+        mean_ratio = sum(ratios) / len(ratios)
         return {
-            "length_ratio": sum(ratios) / len(ratios),
-            "length_difference": sum(differences) / len(differences)
+            "comet": mean_ratio,
+            "comet_mean": mean_ratio,
+            "comet_std": _calculate_std(ratios)
         }
 
-    return evaluate_length_ratio
+    def _calculate_std(values: List[float]) -> float:
+        """Calculate standard deviation."""
+        if len(values) <= 1:
+            return 0.0
+        mean_val = sum(values) / len(values)
+        variance = sum((x - mean_val) ** 2 for x in values) / len(values)
+        return variance ** 0.5
 
-
-@register_evaluator("exact_match", "Exact match evaluation")
-def create_exact_match_evaluator(config: Dict[str, Any]) -> Callable:
-    """
-    Create exact match evaluator.
-
-    Args:
-        config: Configuration parameters
-
-    Returns:
-        Exact match evaluation function
-    """
-
-    def evaluate_exact_match(predictions: List[str], references: List[str]) -> Dict[str, float]:
-        """
-        Compute exact match accuracy.
-
-        Args:
-            predictions: List of predicted translations
-            references: List of reference translations
-
-        Returns:
-            Dictionary with exact match score
-        """
-        if not predictions or not references:
-            return {"exact_match": 0.0}
-
-        matches = sum(1 for pred, ref in zip(predictions, references)
-                      if pred.strip() == ref.strip())
-
-        return {"exact_match": matches / len(predictions)}
-
-    return evaluate_exact_match
-
-# Add more custom evaluators here using the @register_evaluator decorator
-# Example:
-#
-# @register_evaluator("my_custom_metric", "Description of my custom metric")
-# def create_my_custom_metric(config: Dict[str, Any]) -> Callable:
-#     def evaluate_my_metric(predictions: List[str], references: List[str]) -> Dict[str, float]:
-#         # Your implementation here
-#         return {"my_metric": score}
-#     return evaluate_my_metric
+    return evaluate_georgian_comet

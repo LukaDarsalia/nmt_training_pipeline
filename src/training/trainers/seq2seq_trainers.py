@@ -2,17 +2,18 @@
 Seq2Seq Trainer Implementations
 
 Provides various sequence-to-sequence training strategies using HuggingFace Transformers.
+Updated to support COMET evaluation with source sentences.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
+
 import torch
 from transformers import (
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
-    TrainerCallback,
-    EarlyStoppingCallback,
     PreTrainedTokenizer
 )
+
 from ..registry.trainer_registry import register_trainer
 from ..utils.callbacks import WandbPredictionProgressCallback, get_early_stopping_callback
 
@@ -156,6 +157,7 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
     training_params = config.get('training', {})
     generation_params = config.get('generation', {})
     evaluation_params = config.get('evaluation', {})
+    data_params = config.get('data', {})
 
     # Create evaluator
     evaluator_configs = evaluation_params.get('evaluators', [])
@@ -190,8 +192,52 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
             decoded_preds = [pred.strip() for pred in decoded_preds]
             decoded_labels = [label.strip() for label in decoded_labels]
 
-            # Compute metrics
-            return compute_metrics_fn(decoded_preds, decoded_labels)
+            # Get source sentences for COMET evaluation
+            source_column = data_params.get('source_column', 'en')
+
+            # Try to get source sentences from the eval dataset
+            sources = []
+            try:
+                # Check if eval_dataset has the source column
+                if hasattr(eval_dataset, 'features') and source_column in eval_dataset.features:
+                    # Get the first batch_size samples (matching the current evaluation batch)
+                    batch_size = len(decoded_preds)
+                    dataset_sources = eval_dataset[source_column][:batch_size]
+                    sources = [str(src) for src in dataset_sources]
+                elif hasattr(eval_dataset, '__getitem__'):
+                    # Try to get sources from dataset items
+                    batch_size = len(decoded_preds)
+                    for i in range(min(batch_size, len(eval_dataset))):
+                        item = eval_dataset[i]
+                        if isinstance(item, dict) and source_column in item:
+                            sources.append(str(item[source_column]))
+                        else:
+                            sources.append("")
+                else:
+                    sources = [""] * len(decoded_preds)
+            except Exception as e:
+                print(f"Warning: Could not extract source sentences for COMET: {e}")
+                sources = [""] * len(decoded_preds)
+
+            # Ensure sources list has the correct length
+            if len(sources) != len(decoded_preds):
+                print(f"Warning: Source length mismatch. Padding/truncating sources.")
+                if len(sources) < len(decoded_preds):
+                    sources.extend([""] * (len(decoded_preds) - len(sources)))
+                else:
+                    sources = sources[:len(decoded_preds)]
+
+            # Check if any evaluator needs source sentences (like COMET)
+            needs_sources = any('comet' in eval_config.get('name', '').lower()
+                             for eval_config in evaluator_configs)
+
+            if needs_sources and sources:
+                # For COMET and other metrics that need source sentences
+                return compute_metrics_fn(decoded_preds, decoded_labels, sources)
+            else:
+                # For other metrics that don't need source sentences
+                return compute_metrics_fn(decoded_preds, decoded_labels)
+
     else:
         compute_metrics_fn = None
 

@@ -1,7 +1,8 @@
 """
 Training Data Utilities
 
-Provides utility functions for loading and processing data for training.
+Provides utility functions for loading and processing data for training,
+including support for multilingual models.
 """
 
 from typing import Tuple, Dict, Any
@@ -96,6 +97,11 @@ def tokenize_datasets(
     source_column = config.get('source_column', 'en')
     target_column = config.get('target_column', 'ka')
     prefix = config.get('target_prefix', '')
+    multilingual_model = config.get('multilingual_model', False)
+
+    # Check if this is a multilingual model that needs special handling
+    if multilingual_model and hasattr(tokenizer, 'src_lang'):
+        return tokenize_multilingual_datasets(datasets, tokenizer, config)
 
     def preprocess_function(examples):
         """Preprocess function for tokenization."""
@@ -134,6 +140,107 @@ def tokenize_datasets(
     print(f"  Source column: {source_column}")
     print(f"  Target column: {target_column}")
     print(f"  Target prefix: '{prefix}'")
+
+    return (
+        tokenized_datasets['train'],
+        tokenized_datasets['valid'],
+        tokenized_datasets['test']
+    )
+
+
+def tokenize_multilingual_datasets(
+        datasets: Tuple[Dataset, Dataset, Dataset],
+        tokenizer: PreTrainedTokenizer,
+        config: Dict[str, Any]
+) -> Tuple[Dataset, Dataset, Dataset]:
+    """
+    Tokenize datasets for multilingual models (M2M100, mBART, etc.).
+
+    Args:
+        datasets: Tuple of (train, valid, test) datasets
+        tokenizer: Multilingual tokenizer (M2M100Tokenizer, MBart50Tokenizer, etc.)
+        config: Tokenization configuration
+
+    Returns:
+        Tuple of tokenized datasets
+    """
+    train_dataset, valid_dataset, test_dataset = datasets
+
+    # Get configuration parameters
+    max_length = config.get('max_length', 128)
+    source_column = config.get('source_column', 'en')
+    target_column = config.get('target_column', 'ka')
+    source_lang = config.get('source_lang', 'en')
+    target_lang = config.get('target_lang', 'ka')
+
+    def preprocess_multilingual_function(examples):
+        """Preprocess function for multilingual models."""
+        # Get source and target texts
+        inputs = [str(ex) for ex in examples[source_column]]
+        targets = [str(ex) for ex in examples[target_column]]
+
+        # Set source language for tokenizer
+        if hasattr(tokenizer, 'src_lang'):
+            tokenizer.src_lang = source_lang
+
+        # Tokenize inputs
+        model_inputs = tokenizer(
+            inputs,
+            max_length=max_length,
+            truncation=True,
+            padding='max_length'
+        )
+
+        # Tokenize targets
+        with tokenizer.as_target_tokenizer():
+            labels = tokenizer(
+                targets,
+                max_length=max_length,
+                truncation=True,
+                padding='max_length'
+            )
+
+        model_inputs["labels"] = labels["input_ids"]
+
+        # For M2M100, we might need to prepend target language token
+        if hasattr(tokenizer, 'get_lang_id'):
+            try:
+                target_lang_id = tokenizer.get_lang_id(target_lang)
+                # Prepend target language token to labels
+                for i in range(len(model_inputs["labels"])):
+                    labels_list = model_inputs["labels"][i].copy()
+                    # Find first non-pad token and replace with target lang id
+                    for j, token_id in enumerate(labels_list):
+                        if token_id != tokenizer.pad_token_id:
+                            labels_list[j] = target_lang_id
+                            break
+                    model_inputs["labels"][i] = labels_list
+            except Exception as e:
+                print(f"Warning: Could not set target language token: {e}")
+
+        return model_inputs
+
+    # Create dataset dict for easier processing
+    dataset_dict = DatasetDict({
+        'train': train_dataset,
+        'valid': valid_dataset,
+        'test': test_dataset
+    })
+
+    # Tokenize all datasets
+    tokenized_datasets = dataset_dict.map(
+        preprocess_multilingual_function,
+        batched=True,
+        remove_columns=dataset_dict["train"].column_names,
+        desc="Tokenizing multilingual datasets"
+    )
+
+    print(f"Multilingual tokenization complete:")
+    print(f"  Max length: {max_length}")
+    print(f"  Source language: {source_lang}")
+    print(f"  Target language: {target_lang}")
+    print(f"  Source column: {source_column}")
+    print(f"  Target column: {target_column}")
 
     return (
         tokenized_datasets['train'],
