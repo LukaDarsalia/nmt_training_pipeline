@@ -1,5 +1,6 @@
 # Baseline Marian Model Training Configuration with COMET
 # This configuration trains a custom Marian model from scratch using COMET evaluation
+# Uses RichNachos/georgian-corpus-tokenizer-test for tokenization
 
 # Model configuration
 model:
@@ -106,5 +107,5 @@ trainer:
 # Experiment metadata
 experiment:
   name: "baseline_marian_with_comet"
-  description: "Baseline Marian model with Georgian COMET evaluation"
+  description: "Baseline Marian model with Georgian COMET evaluation - uses RichNachos tokenizer"
   tags: ["baseline", "marian", "custom", "comet", "georgian"]

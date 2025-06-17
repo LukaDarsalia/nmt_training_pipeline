@@ -16,9 +16,6 @@ import yaml
 from .trainer import NMTTrainer
 from ..utils.utils import generate_folder_name, get_s3_loader
 
-# Import all components to register them
-from . import models, trainers, evaluators
-
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """
@@ -99,12 +96,6 @@ def validate_config(config: Dict[str, Any]) -> None:
     help="Path to training configuration YAML file"
 )
 @click.option(
-    "--tokenizer-artifact-version",
-    required=True,
-    type=str,
-    help="Version of the tokenizer artifact to use"
-)
-@click.option(
     "--splits-artifact-version",
     required=True,
     type=str,
@@ -156,7 +147,6 @@ def validate_config(config: Dict[str, Any]) -> None:
 )
 def main(
         config: str,
-        tokenizer_artifact_version: str,
         splits_artifact_version: str,
         model_artifact_version: str,
         bucket: str,
@@ -176,7 +166,6 @@ def main(
     Example:
         python -m src.training.runner \\
             --config config/training/experiment_1.yaml \\
-            --tokenizer-artifact-version "latest" \\
             --splits-artifact-version "latest" \\
             --description "Baseline Marian model experiment"
     """
@@ -191,7 +180,6 @@ def main(
     print("NEURAL MACHINE TRANSLATION TRAINING PIPELINE")
     print("=" * 70)
     print(f"Configuration file: {config}")
-    print(f"Tokenizer artifact: tokenizer:{tokenizer_artifact_version}")
     print(f"Splits artifact: splits:{splits_artifact_version}")
     if model_artifact_version:
         print(f"Model artifact: training:{model_artifact_version}")
@@ -239,11 +227,6 @@ def main(
             # Download artifacts
             print("\n📥 Downloading artifacts...")
 
-            # Download tokenizer
-            tokenizer_artifact = run.use_artifact(f"tokenizer:{tokenizer_artifact_version}")
-            tokenizer_dir = tokenizer_artifact.download()
-            print(f"Downloaded tokenizer to: {tokenizer_dir}")
-
             # Download splits
             splits_artifact = run.use_artifact(f"splits:{splits_artifact_version}")
             splits_dir = splits_artifact.download()
@@ -277,7 +260,6 @@ def main(
                 config=training_config,
                 artifact=artifact,
                 input_data_dir=splits_dir,
-                tokenizer_dir=tokenizer_dir,
                 output_data_dir=str(output_dir),
                 model_dir=model_dir
             )

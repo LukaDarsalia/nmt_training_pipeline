@@ -28,7 +28,6 @@ class NMTTrainer:
                  config: Dict[str, Any],
                  artifact: wandb.Artifact,
                  input_data_dir: str,
-                 tokenizer_dir: str,
                  output_data_dir: str,
                  model_dir: Optional[str] = None):
         """
@@ -38,14 +37,12 @@ class NMTTrainer:
             config: Training configuration dictionary
             artifact: WandB artifact for logging
             input_data_dir: Directory containing split datasets
-            tokenizer_dir: Directory containing tokenizer
             output_data_dir: Directory to save outputs
             model_dir: Optional directory containing pretrained model
         """
         self.config = config
         self.artifact = artifact
         self.input_data_dir = Path(input_data_dir)
-        self.tokenizer_dir = Path(tokenizer_dir)
         self.output_data_dir = Path(output_data_dir)
         self.model_dir = Path(model_dir) if model_dir else None
 
@@ -90,17 +87,76 @@ class NMTTrainer:
 
         print("Training pipeline setup complete!")
 
+    def _determine_tokenizer_source(self) -> str:
+        """
+        Determine which tokenizer to use based on model configuration.
+
+        Returns:
+            Tokenizer name/path to load
+        """
+        model_config = self.config.get('model', {})
+        model_type = model_config.get('type')
+
+        # For pretrained models, use the model's tokenizer
+        if model_type in ['marian_pretrained', 'm2m100_multilingual']:
+            model_name = model_config.get('model_name')
+            if model_name:
+                print(f"Using tokenizer from pretrained model: {model_name}")
+                return model_name
+
+        # For encoder-decoder models, use the decoder tokenizer
+        elif model_type in ['encoder_decoder_pretrained', 'encoder_decoder_random', 'encoder_decoder_mixed']:
+            decoder_model = model_config.get('decoder_model', 'gpt2')
+            print(f"Using tokenizer from decoder model: {decoder_model}")
+            return decoder_model
+
+        # For finetuned models, use local tokenizer if available
+        elif model_type == 'marian_finetuned':
+            if self.model_dir and (self.model_dir / 'tokenizer.json').exists():
+                print(f"Using tokenizer from model directory: {self.model_dir}")
+                return str(self.model_dir)
+
+        # Default: use Georgian corpus tokenizer for custom models
+        georgian_tokenizer = "RichNachos/georgian-corpus-tokenizer-test"
+        print(f"Using Georgian corpus tokenizer: {georgian_tokenizer}")
+        return georgian_tokenizer
+
     def _load_tokenizer(self) -> None:
-        """Load the tokenizer."""
+        """Load the appropriate tokenizer based on model configuration."""
         print("Loading tokenizer...")
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_dir)
+            tokenizer_source = self._determine_tokenizer_source()
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_source)
+
+            # Suppress deprecation warnings
             self.tokenizer.deprecation_warnings["Asking-to-pad-a-fast-tokenizer"] = True
-            print(f"Loaded tokenizer from {self.tokenizer_dir}")
+
+            # Ensure we have necessary special tokens
+            if self.tokenizer.pad_token is None:
+                if self.tokenizer.eos_token is not None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                else:
+                    self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+
+            if self.tokenizer.bos_token is None:
+                if self.tokenizer.cls_token is not None:
+                    self.tokenizer.bos_token = self.tokenizer.cls_token
+                else:
+                    self.tokenizer.add_special_tokens({'bos_token': '[BOS]'})
+
+            if self.tokenizer.eos_token is None:
+                if self.tokenizer.sep_token is not None:
+                    self.tokenizer.eos_token = self.tokenizer.sep_token
+                else:
+                    self.tokenizer.add_special_tokens({'eos_token': '[EOS]'})
+
+            print(f"Loaded tokenizer: {tokenizer_source}")
             print(f"Vocab size: {self.tokenizer.vocab_size}")
+            print(f"Special tokens: pad={self.tokenizer.pad_token}, bos={self.tokenizer.bos_token}, eos={self.tokenizer.eos_token}")
+
         except Exception as e:
-            raise RuntimeError(f"Failed to load tokenizer from {self.tokenizer_dir}: {e}")
+            raise RuntimeError(f"Failed to load tokenizer: {e}")
 
     def _load_datasets(self) -> None:
         """Load and tokenize datasets."""
@@ -180,7 +236,8 @@ class NMTTrainer:
         self.artifact.metadata.update({
             'model_type': model_type,
             'total_parameters': f"{total_params:,}",
-            'trainable_parameters': f"{trainable_params:,}"
+            'trainable_parameters': f"{trainable_params:,}",
+            'tokenizer_source': self._determine_tokenizer_source()
         })
 
     def _create_trainer(self) -> None:
@@ -293,8 +350,8 @@ class NMTTrainer:
             raise
 
     def save_model(self) -> None:
-        """Save the trained model."""
-        print("Saving model...")
+        """Save the trained model and tokenizer."""
+        print("Saving model and tokenizer...")
 
         if not self.model:
             raise RuntimeError("Model not initialized. Call setup() first.")
@@ -308,7 +365,7 @@ class NMTTrainer:
             self.model.save_pretrained(model_dir)
             self.tokenizer.save_pretrained(model_dir)
 
-            print(f"Model saved to {model_dir}")
+            print(f"Model and tokenizer saved to {model_dir}")
 
             # Update artifact metadata
             self.artifact.metadata.update({

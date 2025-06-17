@@ -252,13 +252,13 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
         gradient_accumulation_steps=training_params.get('gradient_accumulation_steps', 1),
 
         # Learning rate and optimization
-        learning_rate=training_params.get('learning_rate', 5e-5),
+        learning_rate=float(training_params.get('learning_rate', 5e-5)),
         lr_scheduler_type=training_params.get('lr_scheduler_type', 'cosine'),
         warmup_ratio=training_params.get('warmup_ratio', 0.1),
         weight_decay=training_params.get('weight_decay', 0.01),
 
         # Evaluation and logging
-        evaluation_strategy=training_params.get('evaluation_strategy', 'steps'),
+        eval_strategy=training_params.get('evaluation_strategy', 'steps'),
         eval_steps=training_params.get('eval_steps', 500),
         logging_steps=training_params.get('logging_steps', 100),
         save_steps=training_params.get('save_steps', 500),

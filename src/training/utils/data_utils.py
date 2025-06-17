@@ -2,7 +2,7 @@
 Training Data Utilities
 
 Provides utility functions for loading and processing data for training,
-including support for multilingual models.
+including support for multilingual models and automatic tokenizer handling.
 """
 
 from typing import Tuple, Dict, Any
@@ -74,13 +74,34 @@ def load_datasets_from_artifact(artifact_path: str) -> Tuple[Dataset, Dataset, D
     return train_dataset, valid_dataset, test_dataset
 
 
+def _is_multilingual_tokenizer(tokenizer: PreTrainedTokenizer) -> bool:
+    """
+    Check if tokenizer is a multilingual model tokenizer.
+
+    Args:
+        tokenizer: Tokenizer to check
+
+    Returns:
+        True if it's a multilingual tokenizer
+    """
+    # Check for common multilingual tokenizer attributes
+    multilingual_indicators = [
+        'src_lang',           # M2M100
+        'lang_code_to_id',    # mBART
+        'get_lang_id',        # M2M100 method
+        'tgt_lang'            # Some multilingual models
+    ]
+
+    return any(hasattr(tokenizer, indicator) for indicator in multilingual_indicators)
+
+
 def tokenize_datasets(
         datasets: Tuple[Dataset, Dataset, Dataset],
         tokenizer: PreTrainedTokenizer,
         config: Dict[str, Any]
 ) -> Tuple[Dataset, Dataset, Dataset]:
     """
-    Tokenize datasets for training.
+    Tokenize datasets for training with automatic multilingual detection.
 
     Args:
         datasets: Tuple of (train, valid, test) datasets
@@ -97,11 +118,15 @@ def tokenize_datasets(
     source_column = config.get('source_column', 'en')
     target_column = config.get('target_column', 'ka')
     prefix = config.get('target_prefix', '')
-    multilingual_model = config.get('multilingual_model', False)
 
     # Check if this is a multilingual model that needs special handling
-    if multilingual_model and hasattr(tokenizer, 'src_lang'):
+    multilingual_model = config.get('multilingual_model', False) or _is_multilingual_tokenizer(tokenizer)
+
+    if multilingual_model:
+        print("Detected multilingual tokenizer, using multilingual tokenization")
         return tokenize_multilingual_datasets(datasets, tokenizer, config)
+
+    print("Using standard seq2seq tokenization")
 
     def preprocess_function(examples):
         """Preprocess function for tokenization."""
@@ -179,8 +204,9 @@ def tokenize_multilingual_datasets(
         inputs = [str(ex) for ex in examples[source_column]]
         targets = [str(ex) for ex in examples[target_column]]
 
-        # Set source language for tokenizer
+        # Set source language for tokenizer if supported
         if hasattr(tokenizer, 'src_lang'):
+            original_src_lang = getattr(tokenizer, 'src_lang', None)
             tokenizer.src_lang = source_lang
 
         # Tokenize inputs
@@ -191,8 +217,22 @@ def tokenize_multilingual_datasets(
             padding='max_length'
         )
 
-        # Tokenize targets
-        with tokenizer.as_target_tokenizer():
+        # Tokenize targets with target tokenizer context
+        if hasattr(tokenizer, 'as_target_tokenizer'):
+            with tokenizer.as_target_tokenizer():
+                labels = tokenizer(
+                    targets,
+                    max_length=max_length,
+                    truncation=True,
+                    padding='max_length'
+                )
+        else:
+            # For tokenizers that don't have as_target_tokenizer context
+            # Set target language if supported
+            if hasattr(tokenizer, 'tgt_lang'):
+                original_tgt_lang = getattr(tokenizer, 'tgt_lang', None)
+                tokenizer.tgt_lang = target_lang
+
             labels = tokenizer(
                 targets,
                 max_length=max_length,
@@ -200,13 +240,17 @@ def tokenize_multilingual_datasets(
                 padding='max_length'
             )
 
+            # Restore original target language
+            if hasattr(tokenizer, 'tgt_lang') and 'original_tgt_lang' in locals():
+                tokenizer.tgt_lang = original_tgt_lang
+
         model_inputs["labels"] = labels["input_ids"]
 
-        # For M2M100, we might need to prepend target language token
+        # Handle special tokens for M2M100
         if hasattr(tokenizer, 'get_lang_id'):
             try:
                 target_lang_id = tokenizer.get_lang_id(target_lang)
-                # Prepend target language token to labels
+                # Set forced BOS token for target language
                 for i in range(len(model_inputs["labels"])):
                     labels_list = model_inputs["labels"][i].copy()
                     # Find first non-pad token and replace with target lang id
@@ -217,6 +261,10 @@ def tokenize_multilingual_datasets(
                     model_inputs["labels"][i] = labels_list
             except Exception as e:
                 print(f"Warning: Could not set target language token: {e}")
+
+        # Restore original source language
+        if hasattr(tokenizer, 'src_lang') and 'original_src_lang' in locals():
+            tokenizer.src_lang = original_src_lang
 
         return model_inputs
 
@@ -259,7 +307,7 @@ def prepare_encoder_decoder_tokenization(
 
     Args:
         datasets: Tuple of (train, valid, test) datasets
-        tokenizer: Tokenizer to use
+        tokenizer: Tokenizer to use (typically from decoder model)
         config: Tokenization configuration
 
     Returns:
@@ -286,7 +334,15 @@ def prepare_encoder_decoder_tokenization(
         )
 
         # Tokenize targets
-        with tokenizer.as_target_tokenizer():
+        if hasattr(tokenizer, 'as_target_tokenizer'):
+            with tokenizer.as_target_tokenizer():
+                labels = tokenizer(
+                    targets,
+                    max_length=max_length,
+                    truncation=True,
+                    padding='max_length'
+                )
+        else:
             labels = tokenizer(
                 targets,
                 max_length=max_length,
@@ -296,35 +352,46 @@ def prepare_encoder_decoder_tokenization(
 
         model_inputs["labels"] = labels["input_ids"]
 
-        # Special processing for encoder-decoder models
+        # Special preprocessing for encoder-decoder models
         if config.get('encoder_decoder_preprocessing', False):
+            print("Applying encoder-decoder specific preprocessing...")
+
             # Apply custom preprocessing logic here
             for i, input_ids in enumerate(model_inputs['input_ids']):
-                # Move last token to first position and set first token to BOS
-                input_ids = input_ids[-1:] + input_ids[:-1]
-                input_ids[0] = tokenizer.cls_token_id or tokenizer.bos_token_id
+                input_ids = list(input_ids)  # Convert to list for manipulation
 
-                # Replace SEP token with EOS token
-                if tokenizer.sep_token_id in input_ids:
+                # Ensure we have proper special tokens
+                if tokenizer.bos_token_id is not None and input_ids[0] != tokenizer.bos_token_id:
+                    # Add BOS token at the beginning
+                    input_ids = [tokenizer.bos_token_id] + input_ids[:-1]
+
+                # Replace SEP token with EOS token if present
+                if tokenizer.sep_token_id is not None and tokenizer.sep_token_id in input_ids:
                     sep_idx = input_ids.index(tokenizer.sep_token_id)
-                    input_ids[sep_idx] = tokenizer.eos_token_id
-                elif tokenizer.pad_token_id in input_ids:
-                    pad_idx = input_ids.index(tokenizer.pad_token_id)
-                    input_ids[pad_idx] = tokenizer.eos_token_id
-                else:
-                    input_ids[-1] = tokenizer.eos_token_id
+                    input_ids[sep_idx] = tokenizer.eos_token_id or tokenizer.sep_token_id
 
-                # Remove UNK tokens and pad
-                count_unks = input_ids.count(tokenizer.unk_token_id or 1)
-                input_ids = [token for token in input_ids if token != (tokenizer.unk_token_id or 1)]
-                input_ids.extend([tokenizer.pad_token_id] * count_unks)
+                # Ensure EOS token at the end (before padding)
+                if tokenizer.eos_token_id is not None:
+                    # Find last non-pad token
+                    last_non_pad = len(input_ids) - 1
+                    while last_non_pad >= 0 and input_ids[last_non_pad] == tokenizer.pad_token_id:
+                        last_non_pad -= 1
+
+                    if last_non_pad >= 0 and input_ids[last_non_pad] != tokenizer.eos_token_id:
+                        if last_non_pad < len(input_ids) - 1:
+                            input_ids[last_non_pad + 1] = tokenizer.eos_token_id
+                        else:
+                            input_ids[last_non_pad] = tokenizer.eos_token_id
 
                 model_inputs['input_ids'][i] = input_ids
 
             # Process labels similarly
             for i, label_ids in enumerate(model_inputs['labels']):
-                label_ids = label_ids[-1:] + label_ids[:-1]
-                label_ids[0] = tokenizer.bos_token_id
+                label_ids = list(label_ids)  # Convert to list for manipulation
+
+                if tokenizer.bos_token_id is not None and label_ids[0] != tokenizer.bos_token_id:
+                    label_ids = [tokenizer.bos_token_id] + label_ids[:-1]
+
                 model_inputs['labels'][i] = label_ids
 
         return model_inputs
