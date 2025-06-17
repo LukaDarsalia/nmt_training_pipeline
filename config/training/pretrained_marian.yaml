@@ -1,0 +1,102 @@
+# Pretrained Marian Model Fine-tuning Configuration
+# This configuration fine-tunes a pretrained Marian model
+
+# Model configuration
+model:
+  type: "marian_pretrained"  # Use pretrained Marian model
+  model_name: "Helsinki-NLP/opus-mt-en-ka"  # HuggingFace model name
+
+  # Generation configuration
+  generation_config:
+    max_length: 128
+    num_beams: 1
+    early_stopping: true
+    do_sample: false
+    length_penalty: 1.0
+
+# Data configuration
+data:
+  max_length: 128
+  source_column: "en"
+  target_column: "ka"
+  target_prefix: ""
+
+# Trainer configuration
+trainer:
+  type: "seq2seq_with_metrics"
+
+  # Training parameters
+  training:
+    num_epochs: 5  # Fewer epochs for fine-tuning
+    train_batch_size: 16
+    eval_batch_size: 16
+    gradient_accumulation_steps: 2
+
+    # Learning rate and optimization
+    learning_rate: 2e-5  # Lower learning rate for fine-tuning
+    lr_scheduler_type: "cosine"
+    warmup_ratio: 0.05  # Less warmup for fine-tuning
+    weight_decay: 0.01
+
+    # Evaluation and logging
+    evaluation_strategy: "steps"
+    eval_steps: 250
+    logging_steps: 50
+    save_steps: 250
+    save_total_limit: 3
+
+    # Other parameters
+    fp16: true
+    num_workers: 4
+    seed: 42
+
+    # Best model tracking
+    metric_for_best_model: "eval_sacrebleu"
+    greater_is_better: true
+
+    # Label smoothing
+    label_smoothing_factor: 0.05  # Less smoothing for fine-tuning
+
+    # Reporting
+    report_to: "wandb"
+
+    # Early stopping
+    early_stopping:
+      enabled: true
+      patience: 2
+      threshold: 0.001
+
+    # Prediction logging
+    prediction_logging:
+      enabled: true
+      num_samples: 20
+      frequency: 1  # More frequent logging
+
+  # Generation parameters for evaluation
+  generation:
+    max_length: 128
+    num_beams: 1
+    eval_num_beams: 5
+
+  # Evaluation metrics
+  evaluation:
+    evaluators:
+      - name: "sacrebleu"
+        config: {}
+      - name: "chrf"
+        config:
+          word_order: 2
+      - name: "meteor"
+        config: {}
+      - name: "rouge"
+        config: {}
+      - name: "georgian_comet"
+        config:
+          batch_size: 8
+          device: "cuda"
+
+# Experiment metadata
+experiment:
+  name: "pretrained_marian_finetune"
+  description: "Fine-tuning pretrained Marian model on our dataset"
+  tags: ["fine-tuning", "marian", "pretrained"]
