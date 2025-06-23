@@ -7,11 +7,9 @@ Add your custom models here by registering them with @register_model decorator.
 
 from typing import Dict, Any, Tuple
 import torch
-from transformers import (
-    PreTrainedTokenizer,
-    GenerationConfig,
-    DataCollatorForSeq2Seq
-)
+from transformers.tokenization_utils import PreTrainedTokenizer
+from transformers.generation.configuration_utils import GenerationConfig
+from transformers.data.data_collator import DataCollatorForSeq2Seq
 from ..registry.model_registry import register_model
 
 

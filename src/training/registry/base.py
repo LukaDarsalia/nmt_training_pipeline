@@ -14,7 +14,7 @@ class BaseRegistry(ABC):
 
     def __init__(self):
         """Initialize the registry with empty component and description dictionaries."""
-        self._components: Dict[str, Callable] = {}
+        self._components: Dict[str, Callable[..., Callable[..., Any]]] = {}
         self._descriptions: Dict[str, str] = {}
 
     def register(self, name: str, description: str = "") -> Callable:
@@ -44,7 +44,7 @@ class BaseRegistry(ABC):
 
         return decorator
 
-    def get(self, name: str) -> Optional[Callable]:
+    def get(self, name: str) -> Optional[Callable[..., Callable[..., Any]]]:
         """
         Get a registered component by name.
 

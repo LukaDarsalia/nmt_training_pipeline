@@ -5,7 +5,7 @@ Provides essential evaluation metrics for machine translation:
 SacreBLEU and chrF++ only.
 """
 
-from typing import Dict, Any, List, Callable
+from typing import Dict, Any, List, Callable, Optional
 import evaluate
 from ..registry.evaluator_registry import register_evaluator
 
@@ -24,7 +24,7 @@ def create_sacrebleu_evaluator(config: Dict[str, Any]) -> Callable:
     # Load SacreBLEU metric
     sacrebleu_metric = evaluate.load("sacrebleu")
 
-    def evaluate_sacrebleu(predictions: List[str], references: List[str]) -> Dict[str, float]:
+    def evaluate_sacrebleu(predictions: List[str], references: List[str], sources: Optional[List[str]] = None) -> Dict[str, float]:
         """
         Compute SacreBLEU score.
 
@@ -42,6 +42,9 @@ def create_sacrebleu_evaluator(config: Dict[str, Any]) -> Callable:
             predictions=predictions,
             references=references_list
         )
+
+        if result is None:
+            raise ValueError("SacreBLEU result is None")
 
         return {"sacrebleu": result["score"]}
 
@@ -66,7 +69,7 @@ def create_chrf_evaluator(config: Dict[str, Any]) -> Callable:
     # Get configuration parameters - default to chrF++ (word_order=2)
     word_order = config.get("word_order", 2)
 
-    def evaluate_chrf(predictions: List[str], references: List[str]) -> Dict[str, float]:
+    def evaluate_chrf(predictions: List[str], references: List[str], sources: Optional[List[str]] = None) -> Dict[str, float]:
         """
         Compute chrF++ score.
 
@@ -85,6 +88,9 @@ def create_chrf_evaluator(config: Dict[str, Any]) -> Callable:
             references=references_list,
             word_order=word_order
         )
+
+        if result is None:
+            raise ValueError("CHRF result is None")
 
         return {"chrf++": result["score"]}
 

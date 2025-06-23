@@ -8,12 +8,9 @@ Updated to support COMET evaluation with source sentences.
 from typing import Dict, Any
 
 import torch
-from transformers import (
-    Seq2SeqTrainer,
-    Seq2SeqTrainingArguments,
-    PreTrainedTokenizer
-)
-
+from transformers.trainer_seq2seq import Seq2SeqTrainer
+from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
+from transformers.tokenization_utils import PreTrainedTokenizer
 from ..registry.trainer_registry import register_trainer
 from ..utils.callbacks import WandbPredictionProgressCallback, get_early_stopping_callback
 
@@ -60,7 +57,7 @@ def create_standard_seq2seq_trainer(config: Dict[str, Any],
         weight_decay=training_params.get('weight_decay', 0.01),
 
         # Evaluation and logging
-        evaluation_strategy=training_params.get('evaluation_strategy', 'steps'),
+        eval_strategy=training_params.get('evaluation_strategy', 'steps'),
         eval_steps=training_params.get('eval_steps', 500),
         logging_steps=training_params.get('logging_steps', 100),
         save_steps=training_params.get('save_steps', 500),
@@ -121,8 +118,9 @@ def create_standard_seq2seq_trainer(config: Dict[str, Any],
         args=args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
+        compute_metrics=None,
         callbacks=callbacks
     )
 
@@ -164,8 +162,11 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
     if evaluator_configs:
         compute_metrics_fn = evaluator_registry.create_combined_evaluator(evaluator_configs)
 
-        def compute_metrics(eval_preds):
+        def compute_metrics(eval_preds): # type: ignore
             """Compute metrics for evaluation."""
+            print(f"DEBUG: compute_metrics called with eval_preds type: {type(eval_preds)}")
+            print(f"DEBUG: compute_metrics_fn type: {type(compute_metrics_fn)}")
+            
             preds, labels = eval_preds
 
             # Handle tuple output from model
@@ -175,12 +176,12 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
             # Replace -100 with pad token id for decoding
             preds = torch.where(
                 torch.tensor(preds) == -100,
-                tokenizer.pad_token_id,
+                tokenizer.pad_token_id, # type: ignore
                 torch.tensor(preds)
             )
             labels = torch.where(
                 torch.tensor(labels) == -100,
-                tokenizer.pad_token_id,
+                tokenizer.pad_token_id, # type: ignore
                 torch.tensor(labels)
             )
 
@@ -231,15 +232,17 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
             needs_sources = any('comet' in eval_config.get('name', '').lower()
                              for eval_config in evaluator_configs)
 
-            if needs_sources and sources:
-                # For COMET and other metrics that need source sentences
-                return compute_metrics_fn(decoded_preds, decoded_labels, sources)
-            else:
-                # For other metrics that don't need source sentences
-                return compute_metrics_fn(decoded_preds, decoded_labels)
-
+            print(f"DEBUG: About to call compute_metrics_fn with {len(decoded_preds)} predictions, {len(decoded_labels)} labels, {len(sources)} sources")
+            
+            # Always pass sources parameter to the combined evaluator
+            # Individual evaluators handle the optional sources parameter internally
+            return compute_metrics_fn(decoded_preds, decoded_labels, sources)
     else:
-        compute_metrics_fn = None
+        # Default compute_metrics function when no evaluators are configured
+        def compute_metrics(eval_preds):
+            """Default compute_metrics function when no evaluators are configured."""
+            print("DEBUG: Using default compute_metrics function")
+            return {}
 
     # Create training arguments
     args = Seq2SeqTrainingArguments(
@@ -300,15 +303,28 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
         early_stopping_callback = get_early_stopping_callback(early_stopping_config)
         callbacks.append(early_stopping_callback)
 
+    # Prediction logging
+    prediction_config = training_params.get('prediction_logging', {})
+    if prediction_config.get('enabled', True):
+        prediction_callback = WandbPredictionProgressCallback(
+            tokenizer=tokenizer,
+            eval_dataset=eval_dataset,
+            num_samples=prediction_config.get('num_samples', 20),
+            log_frequency=prediction_config.get('frequency', 2),
+            max_length=generation_params.get('max_length', 128),
+            num_beams=generation_params.get('eval_num_beams', 5)
+        )
+        callbacks.append(prediction_callback)
+
     # Create trainer
     trainer = Seq2SeqTrainer(
         model=model,
         args=args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
-        compute_metrics=compute_metrics_fn,
+        compute_metrics=compute_metrics,
         callbacks=callbacks
     )
 

@@ -4,9 +4,8 @@ Custom Evaluation Metrics
 Provides only the Georgian COMET model for MT evaluation.
 Includes helper metrics for fallback scenarios.
 """
-
-from typing import Dict, Any, List, Callable
-
+from comet import download_model, load_from_checkpoint
+from typing import Dict, Any, List, Callable, Optional
 from ..registry.evaluator_registry import register_evaluator
 
 
@@ -34,7 +33,7 @@ def create_georgian_comet_evaluator(config: Dict[str, Any]) -> Callable:
     # Initialize model variable
     comet_model = None
 
-    def evaluate_georgian_comet(predictions: List[str], references: List[str], sources: List[str] = None) -> Dict[str, float]:
+    def evaluate_georgian_comet(predictions: List[str], references: List[str], sources: Optional[List[str]] = None) -> Dict[str, float]:
         """
         Compute Georgian COMET score.
 
@@ -63,84 +62,40 @@ def create_georgian_comet_evaluator(config: Dict[str, Any]) -> Callable:
             predictions = predictions[:min_len]
             references = references[:min_len]
 
-        try:
-            # Load COMET model if not already loaded
-            if comet_model is None:
-                try:
-                    from comet import download_model, load_from_checkpoint
+        # Load COMET model if not already loaded
+        if comet_model is None:
+            print(f"Loading COMET model: {model_name}")
+            model_path = download_model(model_name)
+            comet_model = load_from_checkpoint(model_path)
+            print("Georgian COMET model loaded successfully")
 
-                    print(f"Loading COMET model: {model_name}")
-                    model_path = download_model(model_name)
-                    comet_model = load_from_checkpoint(model_path)
-                    print("Georgian COMET model loaded successfully")
+        # Prepare data in COMET format
+        data = []
+        for src, pred, ref in zip(sources, predictions, references):
+            data.append({
+                "src": str(src),
+                "mt": str(pred),
+                "ref": str(ref)
+            })
 
-                except Exception as e:
-                    print(f"Error loading Georgian COMET model: {e}")
-                    print("Falling back to simple length ratio evaluation")
-                    return _fallback_evaluation(predictions, references)
+        # Generate COMET scores
+        # Use CPU if GPU not available or specified
+        if device == "cpu":
+            model_output = comet_model.predict(data, batch_size=batch_size, gpus=0, num_workers=0)
+        else:
+            model_output = comet_model.predict(data, batch_size=batch_size, gpus=gpus, num_workers=0)
 
-            # Prepare data in COMET format
-            data = []
-            for src, pred, ref in zip(sources, predictions, references):
-                data.append({
-                    "src": str(src),
-                    "mt": str(pred),
-                    "ref": str(ref)
-                })
+        # Extract system-level score
+        system_score = float(model_output['system_score'])
 
-            # Generate COMET scores
-            try:
-                # Use CPU if GPU not available or specified
-                if device == "cpu":
-                    model_output = comet_model.predict(data, batch_size=batch_size, gpus=0)
-                else:
-                    model_output = comet_model.predict(data, batch_size=batch_size, gpus=gpus)
-
-                # Extract system-level score
-                system_score = float(model_output.system_score)
-
-                # Also return individual scores for debugging if needed
-                individual_scores = [float(score) for score in model_output.scores]
-
-                return {
-                    "comet": system_score,
-                    "comet_mean": sum(individual_scores) / len(individual_scores),
-                    "comet_std": _calculate_std(individual_scores)
-                }
-
-            except Exception as e:
-                print(f"Error computing COMET scores: {e}")
-                return _fallback_evaluation(predictions, references)
-
-        except ImportError:
-            print("COMET library not installed. Install with: pip install unbabel-comet")
-            return _fallback_evaluation(predictions, references)
-        except Exception as e:
-            print(f"Unexpected error in Georgian COMET evaluation: {e}")
-            return _fallback_evaluation(predictions, references)
-
-    def _fallback_evaluation(predictions: List[str], references: List[str]) -> Dict[str, float]:
-        """Fallback evaluation using simple metrics."""
-        if not predictions or not references:
-            return {"comet": 0.0, "comet_mean": 0.0, "comet_std": 0.0}
-
-        # Simple length ratio as fallback
-        ratios = []
-        for pred, ref in zip(predictions, references):
-            pred_len = len(pred.split())
-            ref_len = len(ref.split())
-            if ref_len > 0:
-                ratio = min(pred_len / ref_len, ref_len / pred_len)
-            else:
-                ratio = 0.0
-            ratios.append(ratio)
-
-        mean_ratio = sum(ratios) / len(ratios)
+        # Also return individual scores for debugging if needed
+        individual_scores = [float(score) for score in model_output['scores']]
         return {
-            "comet": mean_ratio,
-            "comet_mean": mean_ratio,
-            "comet_std": _calculate_std(ratios)
+            "comet": system_score,
+            "comet_mean": sum(individual_scores) / len(individual_scores),
+            "comet_std": _calculate_std(individual_scores)
         }
+
 
     def _calculate_std(values: List[float]) -> float:
         """Calculate standard deviation."""

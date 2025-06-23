@@ -9,21 +9,23 @@ from typing import Dict, Any, Tuple
 
 import torch
 from transformers import (
+    MBartTokenizer,
     MarianConfig,
     MarianMTModel,
     M2M100ForConditionalGeneration,
     MBartForConditionalGeneration,
-    GenerationConfig,
-    DataCollatorForSeq2Seq,
-    PreTrainedTokenizer
 )
+from transformers import MarianTokenizer
+from transformers.generation.configuration_utils import GenerationConfig
+from transformers import M2M100Tokenizer
+from transformers.data.data_collator import DataCollatorForSeq2Seq
 
 from ..registry.model_registry import register_model
 
 
 @register_model("marian_pretrained", "Load pretrained Marian/multilingual NMT model from HuggingFace")
 def create_marian_pretrained(config: Dict[str, Any],
-                             tokenizer: PreTrainedTokenizer) -> Tuple[
+                             tokenizer: MarianTokenizer | M2M100Tokenizer | MBartTokenizer) -> Tuple[
     torch.nn.Module, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Create a pretrained Marian or multilingual model.
@@ -47,7 +49,7 @@ def create_marian_pretrained(config: Dict[str, Any],
         generation_config = GenerationConfig.from_model_config(model.config)
 
         # Set forced_bos_token_id for target language (Georgian)
-        if hasattr(tokenizer, 'get_lang_id'):
+        if isinstance(tokenizer, M2M100Tokenizer):
             try:
                 target_lang_id = tokenizer.get_lang_id(target_lang)
                 generation_config.forced_bos_token_id = target_lang_id
@@ -63,7 +65,7 @@ def create_marian_pretrained(config: Dict[str, Any],
         generation_config = GenerationConfig.from_model_config(model.config)
 
         # Set forced_bos_token_id for target language
-        if hasattr(tokenizer, 'lang_code_to_id'):
+        if isinstance(tokenizer, MBartTokenizer):
             target_lang_code = f"{target_lang}_GE"  # Georgian: ka_GE
             if target_lang_code in tokenizer.lang_code_to_id:
                 target_lang_id = tokenizer.lang_code_to_id[target_lang_code]
@@ -96,7 +98,7 @@ def create_marian_pretrained(config: Dict[str, Any],
 
 @register_model("marian_custom", "Create custom Marian model with specified architecture")
 def create_marian_custom(config: Dict[str, Any],
-                         tokenizer: PreTrainedTokenizer) -> Tuple[
+                         tokenizer: MarianTokenizer) -> Tuple[
     MarianMTModel, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Create a custom Marian model with specified architecture.
@@ -110,7 +112,13 @@ def create_marian_custom(config: Dict[str, Any],
     """
     # Get model architecture parameters
     model_params = config.get('architecture', {})
-
+    if not isinstance(tokenizer.bos_token_id, int):
+        raise ValueError("Tokenizer must have bos_token_id")
+    if not isinstance(tokenizer.pad_token_id, int):
+        raise ValueError("Tokenizer must have pad_token_id")
+    if not isinstance(tokenizer.eos_token_id, int):
+        raise ValueError("Tokenizer must have eos_token_id")
+    
     # Create model configuration
     marian_config = MarianConfig(
         vocab_size=tokenizer.vocab_size,
@@ -163,7 +171,7 @@ def create_marian_custom(config: Dict[str, Any],
 
 @register_model("marian_finetuned", "Load finetuned Marian model from local path")
 def create_marian_finetuned(config: Dict[str, Any],
-                            tokenizer: PreTrainedTokenizer) -> Tuple[
+                            tokenizer: MarianTokenizer) -> Tuple[
     MarianMTModel, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Load a finetuned Marian model from local path.
@@ -203,7 +211,7 @@ def create_marian_finetuned(config: Dict[str, Any],
 
 @register_model("m2m100_multilingual", "M2M100 multilingual translation model")
 def create_m2m100_multilingual(config: Dict[str, Any],
-                               tokenizer: PreTrainedTokenizer) -> Tuple[
+                               tokenizer: M2M100Tokenizer) -> Tuple[
     M2M100ForConditionalGeneration, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Create M2M100 multilingual model specifically configured for translation.
@@ -223,14 +231,14 @@ def create_m2m100_multilingual(config: Dict[str, Any],
     model = M2M100ForConditionalGeneration.from_pretrained(model_name)
 
     # Set source language in tokenizer
-    if hasattr(tokenizer, 'src_lang'):
+    if isinstance(tokenizer, M2M100Tokenizer):
         tokenizer.src_lang = source_lang
 
     # Create generation config
     generation_config = GenerationConfig.from_model_config(model.config)
 
     # Set forced_bos_token_id for target language
-    if hasattr(tokenizer, 'get_lang_id'):
+    if isinstance(tokenizer, M2M100Tokenizer):
         try:
             target_lang_id = tokenizer.get_lang_id(target_lang)
             generation_config.forced_bos_token_id = target_lang_id

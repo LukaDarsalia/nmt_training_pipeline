@@ -8,9 +8,14 @@ trainers, and evaluators. Provides a unified interface for training experiments.
 from typing import Dict, Any, Optional
 from pathlib import Path
 import time
+import datasets
 import torch
+from transformers.data.data_collator import DataCollator
+from transformers.generation.configuration_utils import GenerationConfig
+from transformers.trainer import Trainer
 import wandb
-from transformers import AutoTokenizer, set_seed
+from transformers import AutoTokenizer
+from transformers.trainer_utils import set_seed
 
 from .registry import model_registry, trainer_registry, evaluator_registry
 from .utils.data_utils import load_datasets_from_artifact, tokenize_datasets, prepare_encoder_decoder_tokenization
@@ -59,12 +64,12 @@ class NMTTrainer:
         self.output_data_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize later
-        self.tokenizer = None
-        self.model = None
-        self.generation_config = None
-        self.data_collator = None
-        self.trainer = None
-        self.datasets = None
+        self.tokenizer: Any = None
+        self.model: Any = None
+        self.generation_config: Optional[GenerationConfig] = None
+        self.data_collator: Any = None
+        self.trainer: Optional[Trainer] = None
+        self.datasets: Optional[Dict[str, Any]] = None
 
         # Statistics tracking
         self.training_stats = {}
@@ -244,6 +249,9 @@ class NMTTrainer:
         """Create the trainer using trainer registry."""
         print("Creating trainer...")
 
+        if not self.datasets:
+            raise RuntimeError("Datasets not initialized. Call setup() first.")
+
         trainer_config = self.config.get('trainer', {})
         trainer_type = trainer_config.get('type', 'standard_seq2seq')
 
@@ -269,6 +277,9 @@ class NMTTrainer:
 
         if not self.trainer:
             raise RuntimeError("Trainer not initialized. Call setup() first.")
+        
+        if not self.datasets:
+            raise RuntimeError("Datasets not initialized. Call setup() first.")
 
         # Record start time
         start_time = time.time()
@@ -301,12 +312,15 @@ class NMTTrainer:
         """Evaluate the model on validation set."""
         print("Evaluating model...")
 
+        if not self.datasets:
+            raise RuntimeError("Datasets not initialized. Call setup() first.")
+
         if not self.trainer:
             raise RuntimeError("Trainer not initialized. Call setup() first.")
 
         try:
             # Evaluate on validation set
-            eval_results = self.trainer.evaluate()
+            eval_results = self.trainer.evaluate(eval_dataset=self.datasets['valid'])
 
             print("Evaluation completed")
             print("Validation metrics:")
@@ -326,6 +340,9 @@ class NMTTrainer:
 
         if not self.trainer:
             raise RuntimeError("Trainer not initialized. Call setup() first.")
+        
+        if not self.datasets:
+            raise RuntimeError("Datasets not initialized. Call setup() first.")
 
         if dataset_name not in self.datasets:
             raise ValueError(f"Dataset '{dataset_name}' not found. Available: {list(self.datasets.keys())}")
@@ -336,14 +353,16 @@ class NMTTrainer:
 
             predictions = self.trainer.predict(
                 self.datasets[dataset_name],
-                max_length=generation_config.get('max_length', 128),
-                num_beams=generation_config.get('num_beams', 5),
                 metric_key_prefix=f"final_{dataset_name}"
             )
 
             print(f"Prediction completed on {dataset_name} set")
 
-            return predictions
+            return {
+                'predictions': predictions.predictions,
+                'label_ids': predictions.label_ids,
+                'metrics': predictions.metrics
+            }
 
         except Exception as e:
             print(f"Prediction failed: {e}")
@@ -402,6 +421,7 @@ class NMTTrainer:
         final_stats = {
             **self.training_stats,
             'evaluation_results': eval_results,
+            'test_predictions': test_predictions,
             'test_predictions_generated': True
         }
 

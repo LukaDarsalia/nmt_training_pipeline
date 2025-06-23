@@ -5,9 +5,10 @@ Registry for different model architectures including pretrained NMT models,
 encoder-decoder combinations, and custom architectures.
 """
 
-from typing import Dict, Any, Tuple
+from typing import Callable, Dict, Any, Tuple
 import torch.nn as nn
-from transformers import PreTrainedTokenizer, GenerationConfig
+from transformers.tokenization_utils import PreTrainedTokenizer
+from transformers.generation.configuration_utils import GenerationConfig
 from .base import BaseRegistry
 
 
@@ -71,6 +72,9 @@ class ModelRegistry(BaseRegistry):
         self.validate_component_exists(model_name, "Model")
 
         model_func = self.get(model_name)
+        if model_func is None:
+            raise ValueError(f"Model '{model_name}' not found in registry")
+
         output = model_func(config, tokenizer)
 
         return self.validate_component_output(output, model_name)
@@ -80,6 +84,6 @@ class ModelRegistry(BaseRegistry):
 model_registry = ModelRegistry()
 
 
-def register_model(name: str, description: str = "") -> callable:
+def register_model(name: str, description: str = "") -> Callable:
     """Convenience function to register a model."""
     return model_registry.register(name, description)

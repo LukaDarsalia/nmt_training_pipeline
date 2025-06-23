@@ -51,9 +51,9 @@ trainer:
 
     # Evaluation and logging
     evaluation_strategy: "steps"
-    eval_steps: 500
-    logging_steps: 100
-    save_steps: 500
+    eval_steps: 0.2
+    logging_steps: 0.2
+    save_steps: 0.2
     save_total_limit: 3
 
     # Other parameters
@@ -85,8 +85,8 @@ trainer:
 
   # Generation parameters for evaluation
   generation:
-    max_length: 128
-    num_beams: 1
+    max_length: 512
+    num_beams: 5
     eval_num_beams: 5
 
   # Evaluation metrics - Only SacreBLEU, chrF++, and Georgian COMET

@@ -9,18 +9,18 @@ from typing import Dict, Any, Tuple
 import torch
 from transformers import (
     EncoderDecoderModel,
-    AutoTokenizer,
-    GenerationConfig,
-    DataCollatorForSeq2Seq,
-    PreTrainedTokenizer
 )
+from transformers.modeling_utils import PreTrainedModel
+from transformers.generation.configuration_utils import GenerationConfig
+from transformers.data.data_collator import DataCollatorForSeq2Seq
+from transformers.tokenization_utils import PreTrainedTokenizer
 from ..registry.model_registry import register_model
 
 
 @register_model("encoder_decoder_pretrained", "Create EncoderDecoder model from pretrained encoder and decoder")
 def create_encoder_decoder_pretrained(config: Dict[str, Any],
                                       tokenizer: PreTrainedTokenizer) -> Tuple[
-    EncoderDecoderModel, GenerationConfig, DataCollatorForSeq2Seq]:
+    PreTrainedModel, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Create an encoder-decoder model from pretrained encoder and decoder models.
 
@@ -72,7 +72,7 @@ def create_encoder_decoder_pretrained(config: Dict[str, Any],
 @register_model("encoder_decoder_random", "Create randomly initialized EncoderDecoder model")
 def create_encoder_decoder_random(config: Dict[str, Any],
                                   tokenizer: PreTrainedTokenizer) -> Tuple[
-    EncoderDecoderModel, GenerationConfig, DataCollatorForSeq2Seq]:
+    PreTrainedModel, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Create a randomly initialized encoder-decoder model using specified architectures.
 
@@ -128,7 +128,7 @@ def create_encoder_decoder_random(config: Dict[str, Any],
 @register_model("encoder_decoder_mixed", "Create EncoderDecoder with different encoder/decoder initialization")
 def create_encoder_decoder_mixed(config: Dict[str, Any],
                                  tokenizer: PreTrainedTokenizer) -> Tuple[
-    EncoderDecoderModel, GenerationConfig, DataCollatorForSeq2Seq]:
+    PreTrainedModel, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Create an encoder-decoder model with mixed initialization strategies.
 
@@ -147,6 +147,11 @@ def create_encoder_decoder_mixed(config: Dict[str, Any],
         encoder_model,
         decoder_model
     )
+
+    if not isinstance(model.encoder, PreTrainedModel):
+        raise ValueError("Encoder must be a PreTrainedModel")
+    if not isinstance(model.decoder, PreTrainedModel):
+        raise ValueError("Decoder must be a PreTrainedModel")
 
     # Apply different initialization strategies
     if config.get('random_init_encoder', False):

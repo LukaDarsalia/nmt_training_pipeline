@@ -7,7 +7,8 @@ Add your custom trainers here by registering them with @register_trainer decorat
 
 from typing import Dict, Any
 import torch
-from transformers import Trainer, PreTrainedTokenizer
+from transformers.trainer import Trainer
+from transformers.tokenization_utils import PreTrainedTokenizer
 from ..registry.trainer_registry import register_trainer
 
 

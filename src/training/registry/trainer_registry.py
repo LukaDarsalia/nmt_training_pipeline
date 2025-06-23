@@ -4,8 +4,8 @@ Trainer Registry
 Registry for different training strategies and approaches.
 """
 
-from typing import Dict, Any
-from transformers import Trainer
+from typing import Callable, Dict, Any
+from transformers.trainer import Trainer
 from .base import BaseRegistry
 
 
@@ -63,6 +63,9 @@ class TrainerRegistry(BaseRegistry):
         self.validate_component_exists(trainer_name, "Trainer")
 
         trainer_func = self.get(trainer_name)
+        if trainer_func is None:
+            raise ValueError(f"Trainer '{trainer_name}' not found in registry")
+
         trainer = trainer_func(
             config=config,
             model=model,
@@ -79,6 +82,6 @@ class TrainerRegistry(BaseRegistry):
 trainer_registry = TrainerRegistry()
 
 
-def register_trainer(name: str, description: str = "") -> callable:
+def register_trainer(name: str, description: str = "") -> Callable:
     """Convenience function to register a trainer."""
     return trainer_registry.register(name, description)

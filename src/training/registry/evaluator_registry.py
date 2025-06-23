@@ -5,7 +5,7 @@ Registry for different evaluation metrics and strategies.
 Updated to support COMET metrics that require source sentences.
 """
 
-from typing import Dict, Any, List, Callable, Optional
+from typing import Callable, Dict, List, Optional, Any
 from .base import BaseRegistry
 
 
@@ -53,6 +53,9 @@ class EvaluatorRegistry(BaseRegistry):
         self.validate_component_exists(evaluator_name, "Evaluator")
 
         evaluator_func = self.get(evaluator_name)
+        if evaluator_func is None:
+            raise ValueError(f"Evaluator '{evaluator_name}' not found in registry")
+
         evaluator = evaluator_func(config)
 
         return self.validate_component_output(evaluator, evaluator_name)
@@ -93,7 +96,7 @@ class EvaluatorRegistry(BaseRegistry):
 
             Args:
                 predictions: List of predicted translations
-                references: List of reference translations
+                references: List of reference translations (labels)
                 sources: List of source sentences (optional, required for COMET)
 
             Returns:
@@ -103,13 +106,9 @@ class EvaluatorRegistry(BaseRegistry):
 
             for eval_name, evaluator in evaluators:
                 try:
-                    # Check if evaluator needs source sentences (like COMET)
-                    if 'comet' in eval_name.lower() and sources is not None:
-                        # Pass sources to COMET evaluator
-                        metric_results = evaluator(predictions, references, sources)
-                    else:
-                        # Standard evaluators that only need predictions and references
-                        metric_results = evaluator(predictions, references)
+                    # Always call evaluator with all three arguments
+                    # Individual evaluators handle the optional sources parameter
+                    metric_results = evaluator(predictions, references, sources)
 
                     # If evaluator returns dict, merge with prefix
                     if isinstance(metric_results, dict):
@@ -136,6 +135,6 @@ class EvaluatorRegistry(BaseRegistry):
 evaluator_registry = EvaluatorRegistry()
 
 
-def register_evaluator(name: str, description: str = "") -> callable:
+def register_evaluator(name: str, description: str = "") -> Callable:
     """Convenience function to register an evaluator."""
     return evaluator_registry.register(name, description)

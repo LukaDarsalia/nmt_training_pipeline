@@ -16,6 +16,8 @@ import yaml
 from .trainer import NMTTrainer
 from ..utils.utils import generate_folder_name, get_s3_loader
 
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """
