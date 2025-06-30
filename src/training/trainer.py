@@ -2,30 +2,28 @@
 Main NMT Trainer
 
 Orchestrates the training pipeline using registered components for models,
-trainers, and evaluators. Provides a unified interface for training experiments.
+trainers, evaluators, and tokenizers. Provides a unified interface for training experiments.
 """
 
 from typing import Dict, Any, Optional
 from pathlib import Path
 import time
-import datasets
 import torch
 from transformers.data.data_collator import DataCollator
 from transformers.generation.configuration_utils import GenerationConfig
 from transformers.trainer import Trainer
 import wandb
-from transformers import AutoTokenizer
 from transformers.trainer_utils import set_seed
 
-from .registry import model_registry, trainer_registry, evaluator_registry
-from .utils.data_utils import load_datasets_from_artifact, tokenize_datasets, prepare_encoder_decoder_tokenization
+from .registry import model_registry, trainer_registry, evaluator_registry, tokenizer_registry
+from .utils.data_utils import load_datasets_from_artifact
 
 
 class NMTTrainer:
     """
     Main trainer class for neural machine translation experiments.
 
-    Uses registry system to dynamically create models, trainers, and evaluators
+    Uses registry system to dynamically create models, trainers, evaluators, and tokenizers
     based on YAML configuration files.
     """
 
@@ -57,7 +55,7 @@ class NMTTrainer:
         torch.manual_seed(seed)
 
         # Initialize components
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
         print(f"Using device: {self.device}")
 
         # Create output directory
@@ -65,6 +63,7 @@ class NMTTrainer:
 
         # Initialize later
         self.tokenizer: Any = None
+        self.tokenizer_impl: Any = None
         self.model: Any = None
         self.generation_config: Optional[GenerationConfig] = None
         self.data_collator: Any = None
@@ -92,79 +91,36 @@ class NMTTrainer:
 
         print("Training pipeline setup complete!")
 
-    def _determine_tokenizer_source(self) -> str:
-        """
-        Determine which tokenizer to use based on model configuration.
-
-        Returns:
-            Tokenizer name/path to load
-        """
-        model_config = self.config.get('model', {})
-        model_type = model_config.get('type')
-
-        # For pretrained models, use the model's tokenizer
-        if model_type in ['marian_pretrained', 'm2m100_multilingual']:
-            model_name = model_config.get('model_name')
-            if model_name:
-                print(f"Using tokenizer from pretrained model: {model_name}")
-                return model_name
-
-        # For encoder-decoder models, use the decoder tokenizer
-        elif model_type in ['encoder_decoder_pretrained', 'encoder_decoder_random', 'encoder_decoder_mixed']:
-            decoder_model = model_config.get('decoder_model', 'gpt2')
-            print(f"Using tokenizer from decoder model: {decoder_model}")
-            return decoder_model
-
-        # For finetuned models, use local tokenizer if available
-        elif model_type == 'marian_finetuned':
-            if self.model_dir and (self.model_dir / 'tokenizer.json').exists():
-                print(f"Using tokenizer from model directory: {self.model_dir}")
-                return str(self.model_dir)
-
-        # Default: use Georgian corpus tokenizer for custom models
-        georgian_tokenizer = "RichNachos/georgian-corpus-tokenizer-test"
-        print(f"Using Georgian corpus tokenizer: {georgian_tokenizer}")
-        return georgian_tokenizer
-
     def _load_tokenizer(self) -> None:
-        """Load the appropriate tokenizer based on model configuration."""
+        """Load the appropriate tokenizer using tokenizer registry."""
         print("Loading tokenizer...")
 
         try:
-            tokenizer_source = self._determine_tokenizer_source()
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_source)
-
-            # Suppress deprecation warnings
-            self.tokenizer.deprecation_warnings["Asking-to-pad-a-fast-tokenizer"] = True
-
-            # Ensure we have necessary special tokens
-            if self.tokenizer.pad_token is None:
-                if self.tokenizer.eos_token is not None:
-                    self.tokenizer.pad_token = self.tokenizer.eos_token
-                else:
-                    self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-
-            if self.tokenizer.bos_token is None:
-                if self.tokenizer.cls_token is not None:
-                    self.tokenizer.bos_token = self.tokenizer.cls_token
-                else:
-                    self.tokenizer.add_special_tokens({'bos_token': '[BOS]'})
-
-            if self.tokenizer.eos_token is None:
-                if self.tokenizer.sep_token is not None:
-                    self.tokenizer.eos_token = self.tokenizer.sep_token
-                else:
-                    self.tokenizer.add_special_tokens({'eos_token': '[EOS]'})
-
-            print(f"Loaded tokenizer: {tokenizer_source}")
-            print(f"Vocab size: {self.tokenizer.vocab_size}")
-            print(f"Special tokens: pad={self.tokenizer.pad_token}, bos={self.tokenizer.bos_token}, eos={self.tokenizer.eos_token}")
+            # Get tokenizer configuration
+            tokenizer_config = self.config.get('tokenizer', {})
+            tokenizer_type = tokenizer_config.get('type', 'auto_tokenizer')
+            
+            # Validate tokenizer type exists
+            tokenizer_registry.validate_component_exists(tokenizer_type, "Tokenizer")
+            
+            # Get tokenizer implementation
+            tokenizer_class = tokenizer_registry.get(tokenizer_type)
+            if tokenizer_class is None:
+                raise ValueError(f"Tokenizer '{tokenizer_type}' not found in registry")
+            
+            # Create tokenizer instance
+            self.tokenizer_impl = tokenizer_class(tokenizer_config)
+            
+            # Load the actual tokenizer
+            self.tokenizer = self.tokenizer_impl.load_tokenizer()
+            
+            print(f"Loaded tokenizer: {tokenizer_type}")
 
         except Exception as e:
             raise RuntimeError(f"Failed to load tokenizer: {e}")
 
     def _load_datasets(self) -> None:
-        """Load and tokenize datasets."""
+        """Load and tokenize datasets using tokenizer registry."""
         print("Loading datasets...")
 
         # Load raw datasets
@@ -172,27 +128,17 @@ class NMTTrainer:
 
         # Get tokenization configuration
         tokenization_config = self.config.get('data', {})
+        
+        # Add model-specific configuration to tokenization config
         model_config = self.config.get('model', {})
+        if model_config.get('type') in ['encoder_decoder_pretrained', 'encoder_decoder_random', 'encoder_decoder_mixed']:
+            tokenization_config['encoder_decoder_preprocessing'] = model_config.get('encoder_decoder_preprocessing', False)
 
-        # Choose tokenization method based on model type
-        if model_config.get('type') in ['encoder_decoder_pretrained', 'encoder_decoder_random',
-                                        'encoder_decoder_mixed']:
-            # Use encoder-decoder specific tokenization
-            tokenization_config['encoder_decoder_preprocessing'] = model_config.get('encoder_decoder_preprocessing',
-                                                                                    False)
-
-            train_tokenized, valid_tokenized, test_tokenized = prepare_encoder_decoder_tokenization(
-                (train_dataset, valid_dataset, test_dataset),
-                self.tokenizer,
-                tokenization_config
-            )
-        else:
-            # Use standard seq2seq tokenization
-            train_tokenized, valid_tokenized, test_tokenized = tokenize_datasets(
-                (train_dataset, valid_dataset, test_dataset),
-                self.tokenizer,
-                tokenization_config
-            )
+        # Tokenize datasets using tokenizer implementation
+        train_tokenized, valid_tokenized, test_tokenized = self.tokenizer_impl.tokenize_datasets(
+            (train_dataset, valid_dataset, test_dataset),
+            tokenization_config
+        )
 
         self.datasets = {
             'train': train_tokenized,
@@ -226,7 +172,23 @@ class NMTTrainer:
 
         # Resize token embeddings if needed
         if hasattr(self.model, 'resize_token_embeddings'):
-            self.model.resize_token_embeddings(len(self.tokenizer))
+            # Check if this is an EncoderDecoder model
+            if hasattr(self.model, 'encoder') and hasattr(self.model, 'decoder'):
+                # For EncoderDecoder models, resize encoder and decoder separately
+                from src.training.tokenizers.encoder_decoder_tokenizers import EncoderDecoderTokenizer
+                if isinstance(self.tokenizer, EncoderDecoderTokenizer):
+                    if hasattr(self.model.encoder, 'resize_token_embeddings'):
+                        self.model.encoder.resize_token_embeddings(len(self.tokenizer.encoder))
+                        print(f"Resized encoder embeddings to: {len(self.tokenizer.encoder)}")
+                    if hasattr(self.model.decoder, 'resize_token_embeddings'):
+                        self.model.decoder.resize_token_embeddings(len(self.tokenizer.decoder))
+                        print(f"Resized decoder embeddings to: {len(self.tokenizer.decoder)}")
+                else:
+                    # For non-EncoderDecoderTokenizer with EncoderDecoder model, use tokenizer length
+                    if hasattr(self.model.encoder, 'resize_token_embeddings'):
+                        self.model.encoder.resize_token_embeddings(len(self.tokenizer))
+                    if hasattr(self.model.decoder, 'resize_token_embeddings'):
+                        self.model.decoder.resize_token_embeddings(len(self.tokenizer))
 
         # Log model information
         total_params = sum(p.numel() for p in self.model.parameters())
@@ -242,7 +204,7 @@ class NMTTrainer:
             'model_type': model_type,
             'total_parameters': f"{total_params:,}",
             'trainable_parameters': f"{trainable_params:,}",
-            'tokenizer_source': self._determine_tokenizer_source()
+            'tokenizer_type': self.config.get('tokenizer', {}).get('type', 'auto_tokenizer')
         })
 
     def _create_trainer(self) -> None:
@@ -254,10 +216,11 @@ class NMTTrainer:
 
         trainer_config = self.config.get('trainer', {})
         trainer_type = trainer_config.get('type', 'standard_seq2seq')
-
+        print(trainer_config)
         # Add output directory to config
         trainer_config['output_dir'] = str(self.output_data_dir)
 
+        trainer_config['generation_config'] = self.generation_config
         # Create trainer using registry
         self.trainer = trainer_registry.create_trainer(
             trainer_type,
@@ -334,7 +297,7 @@ class NMTTrainer:
             print(f"Evaluation failed: {e}")
             raise
 
-    def predict(self, dataset_name: str = 'test') -> Dict[str, Any]:
+    def predict(self, dataset_name: str = 'valid') -> Dict[str, Any]:
         """Generate predictions on specified dataset."""
         print(f"Generating predictions on {dataset_name} set...")
 
@@ -348,12 +311,9 @@ class NMTTrainer:
             raise ValueError(f"Dataset '{dataset_name}' not found. Available: {list(self.datasets.keys())}")
 
         try:
-            # Generate predictions
-            generation_config = self.config.get('generation', {})
-
             predictions = self.trainer.predict(
                 self.datasets[dataset_name],
-                metric_key_prefix=f"final_{dataset_name}"
+                metric_key_prefix=f"{dataset_name}"
             )
 
             print(f"Prediction completed on {dataset_name} set")

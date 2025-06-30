@@ -12,7 +12,7 @@ from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.training_args_seq2seq import Seq2SeqTrainingArguments
 from transformers.tokenization_utils import PreTrainedTokenizer
 from ..registry.trainer_registry import register_trainer
-from ..utils.callbacks import WandbPredictionProgressCallback, get_early_stopping_callback
+from ..utils.callbacks import WandbEvaluationCallback, WandbPredictionProgressCallback, get_early_stopping_callback
 
 
 @register_trainer("standard_seq2seq", "Standard sequence-to-sequence trainer with cosine scheduler")
@@ -39,6 +39,7 @@ def create_standard_seq2seq_trainer(config: Dict[str, Any],
     # Get training parameters
     training_params = config.get('training', {})
     generation_params = config.get('generation', {})
+    data_params = config.get('data', {})
 
     # Create training arguments
     args = Seq2SeqTrainingArguments(
@@ -102,15 +103,20 @@ def create_standard_seq2seq_trainer(config: Dict[str, Any],
     # Prediction logging
     prediction_config = training_params.get('prediction_logging', {})
     if prediction_config.get('enabled', True):
-        prediction_callback = WandbPredictionProgressCallback(
+        print(f"🔧 Creating WandbEvaluationCallback with {prediction_config.get('num_samples', 20)} samples, frequency {prediction_config.get('frequency', 2)}")
+        prediction_callback = WandbEvaluationCallback(
             tokenizer=tokenizer,
             eval_dataset=eval_dataset,
+            compute_metrics_fn=None,  # Will be handled inside the callback if needed
             num_samples=prediction_config.get('num_samples', 20),
             log_frequency=prediction_config.get('frequency', 2),
             max_length=generation_params.get('max_length', 128),
-            num_beams=generation_params.get('eval_num_beams', 5)
+            num_beams=generation_params.get('eval_num_beams', 5),
+            source_column=data_params.get('source_column', 'en'),
+            target_column=data_params.get('target_column', 'ka')
         )
         callbacks.append(prediction_callback)
+        print(f"✅ Added WandbEvaluationCallback to trainer")
 
     # Create trainer
     trainer = Seq2SeqTrainer(
@@ -123,6 +129,14 @@ def create_standard_seq2seq_trainer(config: Dict[str, Any],
         compute_metrics=None,
         callbacks=callbacks
     )
+
+    # Explicitly set trainer reference in the prediction callback
+    if prediction_config.get('enabled', True):
+        for callback in callbacks:
+            if hasattr(callback, 'trainer') and callback.__class__.__name__ == 'WandbEvaluationCallback':
+                callback.trainer = trainer
+                print(f"🔗 Explicitly set trainer reference in WandbEvaluationCallback")
+                break
 
     return trainer
 
@@ -153,7 +167,7 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
 
     # Get training parameters
     training_params = config.get('training', {})
-    generation_params = config.get('generation', {})
+    generation_params = config.get('generation_config', {})
     evaluation_params = config.get('evaluation', {})
     data_params = config.get('data', {})
 
@@ -176,12 +190,12 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
             # Replace -100 with pad token id for decoding
             preds = torch.where(
                 torch.tensor(preds) == -100,
-                tokenizer.pad_token_id, # type: ignore
+                tokenizer.decoder.pad_token_id if hasattr(tokenizer, 'decoder') else tokenizer.pad_token_id, # type: ignore
                 torch.tensor(preds)
             )
             labels = torch.where(
                 torch.tensor(labels) == -100,
-                tokenizer.pad_token_id, # type: ignore
+                tokenizer.decoder.pad_token_id if hasattr(tokenizer, 'decoder') else tokenizer.pad_token_id, # type: ignore
                 torch.tensor(labels)
             )
 
@@ -228,12 +242,6 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
                 else:
                     sources = sources[:len(decoded_preds)]
 
-            # Check if any evaluator needs source sentences (like COMET)
-            needs_sources = any('comet' in eval_config.get('name', '').lower()
-                             for eval_config in evaluator_configs)
-
-            print(f"DEBUG: About to call compute_metrics_fn with {len(decoded_preds)} predictions, {len(decoded_labels)} labels, {len(sources)} sources")
-            
             # Always pass sources parameter to the combined evaluator
             # Individual evaluators handle the optional sources parameter internally
             return compute_metrics_fn(decoded_preds, decoded_labels, sources)
@@ -241,7 +249,6 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
         # Default compute_metrics function when no evaluators are configured
         def compute_metrics(eval_preds):
             """Default compute_metrics function when no evaluators are configured."""
-            print("DEBUG: Using default compute_metrics function")
             return {}
 
     # Create training arguments
@@ -269,8 +276,7 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
 
         # Generation parameters
         predict_with_generate=True,
-        generation_max_length=generation_params.get('max_length', 128),
-        generation_num_beams=generation_params.get('num_beams', 1),
+        generation_config=generation_params,
 
         # Other parameters
         fp16=training_params.get('fp16', True),
@@ -306,13 +312,13 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
     # Prediction logging
     prediction_config = training_params.get('prediction_logging', {})
     if prediction_config.get('enabled', True):
-        prediction_callback = WandbPredictionProgressCallback(
+        prediction_callback = WandbEvaluationCallback(
             tokenizer=tokenizer,
             eval_dataset=eval_dataset,
             num_samples=prediction_config.get('num_samples', 20),
             log_frequency=prediction_config.get('frequency', 2),
-            max_length=generation_params.get('max_length', 128),
-            num_beams=generation_params.get('eval_num_beams', 5)
+            source_column=data_params.get('source_column', 'en'),
+            target_column=data_params.get('target_column', 'ka')
         )
         callbacks.append(prediction_callback)
 
@@ -327,5 +333,13 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
         compute_metrics=compute_metrics,
         callbacks=callbacks
     )
+
+    # Explicitly set trainer reference in the prediction callback
+    if prediction_config.get('enabled', True):
+        for callback in callbacks:
+            if hasattr(callback, 'trainer') and callback.__class__.__name__ == 'WandbEvaluationCallback':
+                callback.trainer = trainer
+                print(f"🔗 Explicitly set trainer reference in WandbEvaluationCallback")
+                break
 
     return trainer

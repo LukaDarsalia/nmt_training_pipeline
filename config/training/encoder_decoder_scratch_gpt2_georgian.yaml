@@ -1,18 +1,28 @@
-# Baseline Marian Model Training Configuration with COMET
-# This configuration trains a custom Marian model from scratch using COMET evaluation
-# Uses RichNachos/georgian-corpus-tokenizer-test for tokenization
+# Encoder-Decoder Model Built From Scratch
+# This configuration uses EncoderDecoderTokenizer with:
+# - Encoder: openai-community/gpt2
+# - Decoder: RichNachos/georgian-corpus-tokenizer-test tokenizer
+
+# Tokenizer configuration
+tokenizer:
+  type: "encoder_decoder"  # Use encoder-decoder tokenizer
+  encoder_model: "roberta-base"
+  decoder_model: "RichNachos/georgian-corpus-tokenizer-test"
+
 
 # Model configuration
 model:
-  type: "marian_custom"  # Use custom Marian architecture
+  type: "encoder_decoder_scratch"  # Use encoder-decoder built from scratch
+  encoder_model: "openai-community/gpt2"  # Base architecture for encoder
+  decoder_model: "openai-community/gpt2"  # Base architecture for decoder
 
   # Model architecture parameters
   architecture:
     d_model: 512
     encoder_layers: 6
     decoder_layers: 6
-    encoder_ffn_dim: 2048
-    decoder_ffn_dim: 2048
+    encoder_ffn_dim: 1024
+    decoder_ffn_dim: 1024
     encoder_attention_heads: 8
     decoder_attention_heads: 8
     dropout: 0.1
@@ -20,17 +30,18 @@ model:
 
   # Generation configuration
   generation_config:
-    max_length: 128
+    max_length: 512
     num_beams: 1
     early_stopping: true
     do_sample: false
 
 # Data configuration
 data:
-  max_length: 128
+  max_length: 512
   source_column: "en"
   target_column: "ka"
   target_prefix: ""
+  encoder_decoder_preprocessing: true  # Enable special encoder-decoder tokenization
 
 # Trainer configuration
 trainer:
@@ -39,9 +50,9 @@ trainer:
   # Training parameters
   training:
     num_epochs: 10
-    train_batch_size: 32
-    eval_batch_size: 32
-    gradient_accumulation_steps: 1
+    train_batch_size: 4
+    eval_batch_size: 4
+    gradient_accumulation_steps: 8
 
     # Learning rate and optimization
     learning_rate: 5e-4
@@ -99,13 +110,13 @@ trainer:
           word_order: 2  # chrF++
       - name: "georgian_comet"
         config:
-          model_name: "Darsala/georgian_comet"  # Your fine-tuned Georgian COMET model
+          model_name: "Darsala/georgian_comet"
           batch_size: 16
           device: "cuda"
           gpus: 1
 
 # Experiment metadata
 experiment:
-  name: "baseline_marian_with_comet"
-  description: "Baseline Marian model with Georgian COMET evaluation - uses RichNachos tokenizer"
-  tags: ["baseline", "marian", "custom", "comet", "georgian"]
+  name: "encoder_decoder_scratch_gpt2_georgian"
+  description: "EncoderDecoder model built from scratch (GPT2 encoder + Georgian corpus decoder)"
+  tags: ["encoder_decoder", "scratch", "gpt2", "georgian", "from_scratch"] 

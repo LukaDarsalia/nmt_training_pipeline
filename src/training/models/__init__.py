@@ -1,17 +1,22 @@
 """
 Model Implementations
 
-Contains various model architectures and configurations for neural machine translation.
-All models are registered with the model_registry for easy experimentation.
+This module contains various model architectures and their implementations.
+Import all model files to register their components.
 """
 
-# Import all model implementations to register them
-from . import marian_models
+# Import model implementations to register them
+from . import encoder_decoder_scratch_models
+from . import m2m100_models
 from . import encoder_decoder_models
-from . import custom_models
+from . import marian_models
+
+# Custom models can be added here
+# from . import custom_models
 
 __all__ = [
-    'marian_models',
+    'encoder_decoder_scratch_models',
+    'm2m100_models', 
     'encoder_decoder_models',
-    'custom_models'
+    'marian_models',
 ]

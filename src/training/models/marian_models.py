@@ -1,104 +1,26 @@
 """
-Marian Model Implementations
+Marian Model Implementation
 
-Provides various Marian-based model configurations including pretrained models,
-custom architectures, and multilingual models.
+Provides clean Marian-based model implementation for translation tasks.
 """
 
 from typing import Dict, Any, Tuple
 
 import torch
 from transformers import (
-    MBartTokenizer,
     MarianConfig,
     MarianMTModel,
-    M2M100ForConditionalGeneration,
-    MBartForConditionalGeneration,
 )
-from transformers import MarianTokenizer
 from transformers.generation.configuration_utils import GenerationConfig
-from transformers import M2M100Tokenizer
 from transformers.data.data_collator import DataCollatorForSeq2Seq
+from src.training.tokenizers.encoder_decoder_tokenizers import EncoderDecoderTokenizer
 
 from ..registry.model_registry import register_model
 
 
-@register_model("marian_pretrained", "Load pretrained Marian/multilingual NMT model from HuggingFace")
-def create_marian_pretrained(config: Dict[str, Any],
-                             tokenizer: MarianTokenizer | M2M100Tokenizer | MBartTokenizer) -> Tuple[
-    torch.nn.Module, GenerationConfig, DataCollatorForSeq2Seq]:
-    """
-    Create a pretrained Marian or multilingual model.
-
-    Args:
-        config: Model configuration containing 'model_name' key
-        tokenizer: Tokenizer for the model
-
-    Returns:
-        Tuple of (model, generation_config, data_collator)
-    """
-    model_name = config.get('model_name', 'facebook/m2m100_418M')
-    target_lang = config.get('target_lang', 'ka')  # Georgian
-
-    # Determine model type based on model name
-    if 'm2m100' in model_name.lower():
-        # M2M100 multilingual model
-        model = M2M100ForConditionalGeneration.from_pretrained(model_name)
-
-        # Create generation config for M2M100
-        generation_config = GenerationConfig.from_model_config(model.config)
-
-        # Set forced_bos_token_id for target language (Georgian)
-        if isinstance(tokenizer, M2M100Tokenizer):
-            try:
-                target_lang_id = tokenizer.get_lang_id(target_lang)
-                generation_config.forced_bos_token_id = target_lang_id
-                print(f"Set forced_bos_token_id to {target_lang_id} for language '{target_lang}'")
-            except Exception as e:
-                print(f"Warning: Could not set target language ID for '{target_lang}': {e}")
-
-    elif 'mbart' in model_name.lower():
-        # mBART multilingual model
-        model = MBartForConditionalGeneration.from_pretrained(model_name)
-
-        # Create generation config for mBART
-        generation_config = GenerationConfig.from_model_config(model.config)
-
-        # Set forced_bos_token_id for target language
-        if isinstance(tokenizer, MBartTokenizer):
-            target_lang_code = f"{target_lang}_GE"  # Georgian: ka_GE
-            if target_lang_code in tokenizer.lang_code_to_id:
-                target_lang_id = tokenizer.lang_code_to_id[target_lang_code]
-                generation_config.forced_bos_token_id = target_lang_id
-                print(f"Set forced_bos_token_id to {target_lang_id} for language '{target_lang_code}'")
-            else:
-                print(f"Warning: Language code '{target_lang_code}' not found in tokenizer")
-
-    else:
-        # Standard Marian model
-        model = MarianMTModel.from_pretrained(model_name)
-        generation_config = GenerationConfig.from_model_config(model.config)
-
-    # Update generation config with custom parameters
-    generation_config.update(**config.get('generation_config', {}))
-
-    # Move to device if specified
-    device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-
-    # Create data collator
-    data_collator = DataCollatorForSeq2Seq(
-        tokenizer,
-        model=model,
-        padding=True
-    )
-
-    return model, generation_config, data_collator
-
-
 @register_model("marian_custom", "Create custom Marian model with specified architecture")
 def create_marian_custom(config: Dict[str, Any],
-                         tokenizer: MarianTokenizer) -> Tuple[
+                         tokenizer: EncoderDecoderTokenizer) -> Tuple[
     MarianMTModel, GenerationConfig, DataCollatorForSeq2Seq]:
     """
     Create a custom Marian model with specified architecture.
@@ -112,23 +34,26 @@ def create_marian_custom(config: Dict[str, Any],
     """
     # Get model architecture parameters
     model_params = config.get('architecture', {})
-    if not isinstance(tokenizer.bos_token_id, int):
-        raise ValueError("Tokenizer must have bos_token_id")
-    if not isinstance(tokenizer.pad_token_id, int):
-        raise ValueError("Tokenizer must have pad_token_id")
-    if not isinstance(tokenizer.eos_token_id, int):
-        raise ValueError("Tokenizer must have eos_token_id")
     
+    # Validate tokenizer properties
+    if not hasattr(tokenizer, 'bos_token_id') or tokenizer.bos_token_id is None:
+        raise ValueError("Tokenizer must have bos_token_id")
+    if not hasattr(tokenizer, 'pad_token_id') or tokenizer.pad_token_id is None:
+        raise ValueError("Tokenizer must have pad_token_id")
+    if not hasattr(tokenizer, 'eos_token_id') or tokenizer.eos_token_id is None:
+        raise ValueError("Tokenizer must have eos_token_id")
+    print("max(tokenizer.encoder.vocab_size, tokenizer.decoder.vocab_size)", max(tokenizer.encoder.vocab_size, tokenizer.decoder.vocab_size))
     # Create model configuration
     marian_config = MarianConfig(
-        vocab_size=tokenizer.vocab_size,
+        vocab_size=max(tokenizer.decoder.vocab_size, tokenizer.encoder.vocab_size),
         max_position_embeddings=config.get('max_length', 512),
         max_length=config.get('max_length', 512),
-        decoder_start_token_id=tokenizer.bos_token_id,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        bos_token_id=tokenizer.bos_token_id,
-        forced_eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=int(tokenizer.encoder.pad_token_id),
+        eos_token_id=int(tokenizer.decoder.eos_token_id),
+        bos_token_id=int(tokenizer.encoder.bos_token_id),
+        decoder_start_token_id=int(tokenizer.decoder.bos_token_id),
+        forced_eos_token_id=int(tokenizer.encoder.eos_token_id),
+        share_encoder_decoder_embeddings=False,
 
         # Architecture parameters
         d_model=model_params.get('d_model', 512),
@@ -151,13 +76,20 @@ def create_marian_custom(config: Dict[str, Any],
     # Create model
     model = MarianMTModel(marian_config)
 
+    model.model.decoder.padding_idx = int(tokenizer.decoder.pad_token_id)
+
+    print("config", config)
     # Move to device if specified
     device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Moving model to device: {device}")
     model = model.to(device)
 
     # Create generation config
     generation_config = GenerationConfig.from_model_config(marian_config)
     generation_config.update(**config.get('generation_config', {}))
+    generation_config.pad_token_id = int(tokenizer.decoder.pad_token_id)
+    generation_config.bos_token_id = int(tokenizer.decoder.bos_token_id)
+    generation_config.eos_token_id = int(tokenizer.decoder.eos_token_id)
 
     # Create data collator
     data_collator = DataCollatorForSeq2Seq(
@@ -166,98 +98,10 @@ def create_marian_custom(config: Dict[str, Any],
         padding=True
     )
 
-    return model, generation_config, data_collator
-
-
-@register_model("marian_finetuned", "Load finetuned Marian model from local path")
-def create_marian_finetuned(config: Dict[str, Any],
-                            tokenizer: MarianTokenizer) -> Tuple[
-    MarianMTModel, GenerationConfig, DataCollatorForSeq2Seq]:
-    """
-    Load a finetuned Marian model from local path.
-
-    Args:
-        config: Model configuration containing 'model_path' key
-        tokenizer: Tokenizer for the model
-
-    Returns:
-        Tuple of (model, generation_config, data_collator)
-    """
-    model_path = config.get('model_path')
-    if not model_path:
-        raise ValueError("model_path must be specified for marian_finetuned")
-
-    # Load configuration and model
-    marian_config = MarianConfig.from_pretrained(model_path)
-    model = MarianMTModel.from_pretrained(model_path, config=marian_config)
-
-    # Move to device if specified
-    device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-
-    # Create generation config
-    generation_config = GenerationConfig.from_model_config(marian_config)
-    generation_config.update(**config.get('generation_config', {}))
-
-    # Create data collator
-    data_collator = DataCollatorForSeq2Seq(
-        tokenizer,
-        model=model,
-        padding=True
-    )
-
-    return model, generation_config, data_collator
-
-
-@register_model("m2m100_multilingual", "M2M100 multilingual translation model")
-def create_m2m100_multilingual(config: Dict[str, Any],
-                               tokenizer: M2M100Tokenizer) -> Tuple[
-    M2M100ForConditionalGeneration, GenerationConfig, DataCollatorForSeq2Seq]:
-    """
-    Create M2M100 multilingual model specifically configured for translation.
-
-    Args:
-        config: Model configuration
-        tokenizer: M2M100Tokenizer
-
-    Returns:
-        Tuple of (model, generation_config, data_collator)
-    """
-    model_name = config.get('model_name', 'facebook/m2m100_418M')
-    source_lang = config.get('source_lang', 'en')
-    target_lang = config.get('target_lang', 'ka')
-
-    # Load model
-    model = M2M100ForConditionalGeneration.from_pretrained(model_name)
-
-    # Set source language in tokenizer
-    if isinstance(tokenizer, M2M100Tokenizer):
-        tokenizer.src_lang = source_lang
-
-    # Create generation config
-    generation_config = GenerationConfig.from_model_config(model.config)
-
-    # Set forced_bos_token_id for target language
-    if isinstance(tokenizer, M2M100Tokenizer):
-        try:
-            target_lang_id = tokenizer.get_lang_id(target_lang)
-            generation_config.forced_bos_token_id = target_lang_id
-            print(f"M2M100: Set target language to '{target_lang}' (ID: {target_lang_id})")
-        except Exception as e:
-            print(f"Warning: Could not set target language '{target_lang}': {e}")
-
-    # Update with custom generation parameters
-    generation_config.update(**config.get('generation_config', {}))
-
-    # Move to device if specified
-    device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-
-    # Create data collator
-    data_collator = DataCollatorForSeq2Seq(
-        tokenizer,
-        model=model,
-        padding=True
-    )
+    print(f"Created Marian model:")
+    print(f"  Architecture: d_model={marian_config.d_model}, layers={marian_config.encoder_layers}/{marian_config.decoder_layers}")
+    print(f"  Vocab size: {marian_config.vocab_size}")
+    print(f"  Total parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"  Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
     return model, generation_config, data_collator

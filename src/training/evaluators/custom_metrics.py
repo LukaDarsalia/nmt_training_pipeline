@@ -92,17 +92,65 @@ def create_georgian_comet_evaluator(config: Dict[str, Any]) -> Callable:
         individual_scores = [float(score) for score in model_output['scores']]
         return {
             "comet": system_score,
-            "comet_mean": sum(individual_scores) / len(individual_scores),
             "comet_std": _calculate_std(individual_scores)
         }
 
-
-    def _calculate_std(values: List[float]) -> float:
-        """Calculate standard deviation."""
-        if len(values) <= 1:
-            return 0.0
-        mean_val = sum(values) / len(values)
-        variance = sum((x - mean_val) ** 2 for x in values) / len(values)
-        return variance ** 0.5
-
     return evaluate_georgian_comet
+
+
+def get_individual_georgian_comet_scores(predictions: List[str], 
+                                       references: List[str], 
+                                       sources: List[str],
+                                       config: Dict[str, Any]) -> List[float]:
+    """
+    Get individual COMET scores for each prediction.
+    
+    Args:
+        predictions: List of predicted translations
+        references: List of reference translations  
+        sources: List of source sentences
+        config: Configuration for COMET model
+        
+    Returns:
+        List of individual COMET scores
+    """
+    # Configuration parameters
+    model_name = config.get("model_name", "Darsala/georgian_comet")
+    batch_size = config.get("batch_size", 16)
+    device = config.get("device", "cuda")
+    gpus = config.get("gpus", 1)
+    
+    try:
+        # Load model
+        model_path = download_model(model_name)
+        comet_model = load_from_checkpoint(model_path)
+        
+        # Prepare data
+        data = []
+        for src, pred, ref in zip(sources, predictions, references):
+            data.append({
+                "src": str(src),
+                "mt": str(pred),
+                "ref": str(ref)
+            })
+        
+        # Generate scores
+        if device == "cpu":
+            model_output = comet_model.predict(data, batch_size=batch_size, gpus=0, num_workers=0)
+        else:
+            model_output = comet_model.predict(data, batch_size=batch_size, gpus=gpus, num_workers=0)
+            
+        return [float(score) for score in model_output['scores']]
+        
+    except Exception as e:
+        print(f"Warning: Could not compute individual COMET scores: {e}")
+        return [0.0] * len(predictions)
+
+
+def _calculate_std(values: List[float]) -> float:
+    """Calculate standard deviation."""
+    if len(values) <= 1:
+        return 0.0
+    mean_val = sum(values) / len(values)
+    variance = sum((x - mean_val) ** 2 for x in values) / len(values)
+    return variance ** 0.5

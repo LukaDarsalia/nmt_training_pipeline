@@ -76,6 +76,17 @@ def validate_config(config: Dict[str, Any]) -> None:
             f"Available models: {available_models}"
         )
 
+    # Check tokenizer configuration if specified
+    tokenizer_config = config.get('tokenizer', {})
+    if 'type' in tokenizer_config:
+        from .registry import tokenizer_registry
+        if tokenizer_config['type'] not in tokenizer_registry.list_components():
+            available_tokenizers = list(tokenizer_registry.list_components().keys())
+            raise ValueError(
+                f"Tokenizer type '{tokenizer_config['type']}' not found. "
+                f"Available tokenizers: {available_tokenizers}"
+            )
+
     # Check trainer configuration if specified
     trainer_config = config.get('trainer', {})
     if 'type' in trainer_config:
@@ -199,9 +210,10 @@ def main(
 
         # Print available components
         print("\n🔧 Available components:")
-        from .registry import model_registry, trainer_registry, evaluator_registry
+        from .registry import model_registry, trainer_registry, evaluator_registry, tokenizer_registry
 
         print(f"Models: {list(model_registry.list_components().keys())}")
+        print(f"Tokenizers: {list(tokenizer_registry.list_components().keys())}")
         print(f"Trainers: {list(trainer_registry.list_components().keys())}")
         print(f"Evaluators: {list(evaluator_registry.list_components().keys())}")
 
@@ -302,13 +314,13 @@ def main(
 @click.command()
 @click.option(
     "--registry",
-    type=click.Choice(['models', 'trainers', 'evaluators', 'all']),
+    type=click.Choice(['models', 'tokenizers', 'trainers', 'evaluators', 'all']),
     default='all',
     help="Which registry to list components from"
 )
 def list_components(registry: str) -> None:
     """List available components in the registries."""
-    from .registry import model_registry, trainer_registry, evaluator_registry
+    from .registry import model_registry, trainer_registry, evaluator_registry, tokenizer_registry
 
     print("Available Training Components")
     print("=" * 50)
@@ -316,6 +328,11 @@ def list_components(registry: str) -> None:
     if registry in ['models', 'all']:
         print("\n🔧 MODELS:")
         for name, desc in model_registry.list_components().items():
+            print(f"  {name:<25} - {desc}")
+
+    if registry in ['tokenizers', 'all']:
+        print("\n🔤 TOKENIZERS:")
+        for name, desc in tokenizer_registry.list_components().items():
             print(f"  {name:<25} - {desc}")
 
     if registry in ['trainers', 'all']:
