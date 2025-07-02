@@ -54,9 +54,9 @@ def create_encoder_decoder_pretrained(config: Dict[str, Any],
     model.config.encoder.pad_token_id = tokenizer.pad_token_id
 
     model.config.eos_token_id = tokenizer.eos_token_id
-    model.decoder.config.eos_token_id = tokenizer.eos_token_id
     model.config.decoder.eos_token_id = tokenizer.eos_token_id
     model.config.encoder.eos_token_id = tokenizer.eos_token_id
+    model.config.decoder.eos_token_id = tokenizer.eos_token_id
 
     # Move to device if specified
     device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
@@ -64,7 +64,16 @@ def create_encoder_decoder_pretrained(config: Dict[str, Any],
 
     # Create generation config
     generation_config = GenerationConfig.from_model_config(model.config)
-    generation_config.update(**config.get('generation_config', {}))
+    print(config)
+    print(generation_config)
+    generation_config.max_length = config.get('generation_config', {}).get('max_length', 128)
+    generation_config.num_beams = config.get('generation_config', {}).get('num_beams', 1)
+    generation_config.early_stopping = config.get('generation_config', {}).get('early_stopping', False)
+    generation_config.do_sample = config.get('generation_config', {}).get('do_sample', False)
+    print(generation_config)
+    generation_config.pad_token_id = int(tokenizer.decoder.pad_token_id)
+    generation_config.bos_token_id = int(tokenizer.decoder.bos_token_id)
+    generation_config.eos_token_id = int(tokenizer.decoder.eos_token_id)
 
     # Create data collator
     data_collator = DataCollatorForSeq2Seq(

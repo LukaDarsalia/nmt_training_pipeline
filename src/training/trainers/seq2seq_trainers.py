@@ -38,7 +38,7 @@ def create_standard_seq2seq_trainer(config: Dict[str, Any],
     """
     # Get training parameters
     training_params = config.get('training', {})
-    generation_params = config.get('generation', {})
+    generation_params = config.get('generation_config', {})
     data_params = config.get('data', {})
 
     # Create training arguments
@@ -66,8 +66,8 @@ def create_standard_seq2seq_trainer(config: Dict[str, Any],
 
         # Generation parameters
         predict_with_generate=True,
-        generation_max_length=generation_params.get('max_length', 128),
-        generation_num_beams=generation_params.get('num_beams', 1),
+        generation_max_length=generation_params.max_length,
+        generation_num_beams=generation_params.num_beams,
 
         # Other parameters
         fp16=training_params.get('fp16', True),
@@ -250,7 +250,7 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
         def compute_metrics(eval_preds):
             """Default compute_metrics function when no evaluators are configured."""
             return {}
-
+    print(f"Generation parameters: {generation_params}")
     # Create training arguments
     args = Seq2SeqTrainingArguments(
         output_dir=config.get('output_dir', 'output'),
@@ -276,6 +276,8 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
 
         # Generation parameters
         predict_with_generate=True,
+        generation_max_length=generation_params.max_length,
+        generation_num_beams=generation_params.num_beams,
         generation_config=generation_params,
 
         # Other parameters

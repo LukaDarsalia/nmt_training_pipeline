@@ -18,10 +18,10 @@ model:
   # Generation configuration
   generation_config:
     max_length: 128
-    num_beams: 5
-    early_stopping: true
+    early_stopping: false
     do_sample: false
-
+    num_beams: 1
+    eval_num_beams: 1
 # Data configuration
 data:
   max_length: 128
@@ -39,7 +39,7 @@ trainer:
 
   # Training parameters
   training:
-    num_epochs: 12
+    num_epochs: 20
     train_batch_size: 4
     eval_batch_size: 4
     gradient_accumulation_steps: 8
@@ -84,23 +84,11 @@ trainer:
       num_samples: 30
       frequency: 1
 
-  # Generation parameters for evaluation
-  generation:
-    max_length: 512
-    num_beams: 5
-    eval_num_beams: 5
-    
   # Data configuration
   data:
-    max_length: 128
     source_column: "en"
     target_column: "ka"
-    target_prefix: ""
-    encoder_decoder_preprocessing: true  # Enable special tokenization
-    max_source_length: 128
-    max_target_length: 128
-    preprocessing_num_workers: 4
-    
+
   # Evaluation metrics - Only SacreBLEU, chrF++, and Georgian COMET
   evaluation:
     evaluators:

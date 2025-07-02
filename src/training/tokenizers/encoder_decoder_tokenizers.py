@@ -26,6 +26,8 @@ from transformers.utils import logging
 from transformers import AutoTokenizer
 from transformers.utils.generic import PaddingStrategy, TensorType
 from transformers.tokenization_utils import PreTrainedTokenizer
+from transformers.modeling_utils import PreTrainedModel
+from transformers import EncoderDecoderModel
 from ..registry.tokenizer_registry import BaseTokenizer, register_tokenizer
 
 
@@ -332,9 +334,13 @@ class EncoderDecoderTokenizer(PreTrainedTokenizer):
 
     @overrides
     def __call__(self, text, text_target=None, *args, **kwargs):
+        if isinstance(text,str): text = text + self.eos_token
+        else: text = [i+self.eos_token for i in text]
         results = self.encoder(text, *args, **kwargs)
         if text_target:
-            results['labels'] = self.decoder(text_target, *args, **kwargs)['input_ids']
+            tmp = self.decoder(text_target, *args, **kwargs)
+            results['labels'] = tmp['input_ids']
+            results['decoder_attention_mask'] = tmp['attention_mask']
         return results
 
     def _decode(
@@ -498,7 +504,8 @@ class EncoderDecoderTokenizerImpl(BaseTokenizer):
     
     def tokenize_datasets(self, 
                          datasets: Tuple[Dataset, Dataset, Dataset],
-                         tokenization_config: Dict[str, Any]) -> Tuple[Dataset, Dataset, Dataset]:
+                         tokenization_config: Dict[str, Any],
+                         model: Optional[PreTrainedModel] = None) -> Tuple[Dataset, Dataset, Dataset]:
         """
         Tokenize datasets for encoder-decoder model.
         
@@ -516,7 +523,7 @@ class EncoderDecoderTokenizerImpl(BaseTokenizer):
         encoder_decoder_preprocessing = tokenization_config.get('encoder_decoder_preprocessing', True)
         
         if encoder_decoder_preprocessing:
-            return self._encoder_decoder_tokenize_datasets(datasets, self.tokenizer, tokenization_config, encoder_decoder_preprocessing)
+            return self._encoder_decoder_tokenize_datasets(datasets, self.tokenizer, tokenization_config, encoder_decoder_preprocessing, model)
         else:
             return self._default_tokenize_datasets(datasets, self.tokenizer, tokenization_config)
     
@@ -524,7 +531,8 @@ class EncoderDecoderTokenizerImpl(BaseTokenizer):
                                           datasets: Tuple[Dataset, Dataset, Dataset],
                                           tokenizer: EncoderDecoderTokenizer,
                                           config: Dict[str, Any],
-                                          encoder_decoder_preprocessing: bool) -> Tuple[Dataset, Dataset, Dataset]:
+                                          encoder_decoder_preprocessing: bool,
+                                          model: Optional[PreTrainedModel] = None) -> Tuple[Dataset, Dataset, Dataset]:
         """
         Special tokenization for encoder-decoder models with preprocessing.
         
@@ -556,9 +564,43 @@ class EncoderDecoderTokenizerImpl(BaseTokenizer):
                 text_target=targets,
                 max_length=max_length,
                 truncation=True,
-                padding='max_length'
+                padding='max_length',
+                return_tensors='pt'
             )
-            
+
+            if isinstance(model, EncoderDecoderModel):
+                labels = model_inputs["labels"]                             # (B, L)
+                dec_mask = model_inputs["decoder_attention_mask"]           # (B, L)
+                bos_id   = model.config.bos_token_id
+                pad_val  = -100                                             # ignore‐index
+
+                # 1) Which sequences start with BOS?
+                mask = labels[:, 0] == bos_id                               # (B,) # type: ignore
+
+                if mask.any():
+                    # 2) shift labels left + pad with ignore‐index
+                    shifted_lbl = torch.cat([
+                        labels[:, 1:],  # type: ignore
+                        torch.full((labels.size(0), 1), pad_val, dtype=labels.dtype, device=labels.device) # type: ignore
+                    ], dim=1)                                               # (B, L)
+
+                    # 3) shift decoder_attention_mask left + pad with zeros
+                    shifted_attn = torch.cat([
+                        dec_mask[:, 1:],  # type: ignore
+                        torch.zeros((dec_mask.size(0), 1), dtype=dec_mask.dtype, device=dec_mask.device) # type: ignore
+                    ], dim=1)                                               # (B, L)
+
+                    # 4) apply only to the rows that had a BOS
+                    labels   = torch.where(mask.unsqueeze(1), shifted_lbl, labels) # type: ignore
+                    dec_mask = torch.where(mask.unsqueeze(1), shifted_attn, dec_mask) # type: ignore
+
+                    model_inputs["labels"]                 = labels
+                    model_inputs["decoder_attention_mask"] = dec_mask
+
+                # 5) regenerate decoder_input_ids (it will insert exactly one BOS at t=0)
+                model_inputs["decoder_input_ids"] = model.prepare_decoder_input_ids_from_labels(
+                    labels=labels # type: ignore
+                )
             return model_inputs
         
         # Create dataset dict for easier processing

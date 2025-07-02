@@ -86,7 +86,11 @@ def create_marian_custom(config: Dict[str, Any],
 
     # Create generation config
     generation_config = GenerationConfig.from_model_config(marian_config)
-    generation_config.update(**config.get('generation_config', {}))
+    generation_config.max_length = config.get('generation_config', {}).get('max_length', 128)
+    generation_config.num_beams = config.get('generation_config', {}).get('num_beams', 1)
+    generation_config.early_stopping = config.get('generation_config', {}).get('early_stopping', False)
+    generation_config.do_sample = config.get('generation_config', {}).get('do_sample', False)
+    
     generation_config.pad_token_id = int(tokenizer.decoder.pad_token_id)
     generation_config.bos_token_id = int(tokenizer.decoder.bos_token_id)
     generation_config.eos_token_id = int(tokenizer.decoder.eos_token_id)

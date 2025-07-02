@@ -99,7 +99,7 @@ def synthetic_noise_augmentation(df: pd.DataFrame, config: Dict[str, Any]) -> pd
     """
     percentage = config.get('percentage', 0.1)
     noise_types = config.get('noise_types', ['delete', 'insert', 'duplicate', 'substitute', 'swap'])
-    char_ranges = config.get('char_ranges', ['a-z', 'A-Z', 'ა-ჰ'])
+    char_ranges = config.get('char_ranges', ['a-z'])
     target_column = config.get('target_column', 'en')  # Which column to add noise to
 
     chars = _generate_char_list(char_ranges)

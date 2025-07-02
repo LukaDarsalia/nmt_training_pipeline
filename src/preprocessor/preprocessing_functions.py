@@ -203,38 +203,9 @@ def lowercase_english(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
         DataFrame with lowercase English text
     """
     columns = config.get('columns', ['en'])
-    preserve_proper_nouns = config.get('preserve_proper_nouns', False)
-
-    # Pre-compile pattern for sentence endings
-    sentence_end_pattern = re.compile(r'[.!?]\s*$')
 
     def lowercase_text(text: str) -> str:
-        if not text or pd.isna(text) or text == 'nan':
-            return text
-
-        if preserve_proper_nouns:
-            # Simple heuristic: preserve words that start with uppercase
-            # and are likely proper nouns (not at sentence start)
-            words = text.split()
-            result_words = []
-
-            for i, word in enumerate(words):
-                # If it's the first word or after sentence-ending punctuation
-                if i == 0 or (i > 0 and sentence_end_pattern.search(words[i-1])):
-                    result_words.append(word.lower())
-                # If it starts with uppercase and might be a proper noun
-                elif word and word[0].isupper() and len(word) > 1:
-                    # Check if entire word is uppercase (acronym)
-                    if word.isupper():
-                        result_words.append(word)  # Keep acronyms as is
-                    else:
-                        result_words.append(word)  # Keep proper nouns
-                else:
-                    result_words.append(word.lower())
-
-            return ' '.join(result_words)
-        else:
-            return text.lower()
+        return text.lower()
 
     return _process_dataframe_columns(df, lowercase_text, columns)
 

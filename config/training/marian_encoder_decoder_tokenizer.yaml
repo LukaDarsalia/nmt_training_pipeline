@@ -15,12 +15,12 @@ model:
   # Model architecture parameters
   architecture:
     d_model: 512
-    encoder_layers: 4
-    decoder_layers: 4
-    encoder_ffn_dim: 768
-    decoder_ffn_dim: 768
-    encoder_attention_heads: 8
-    decoder_attention_heads: 8
+    encoder_layers: 6
+    decoder_layers: 6
+    encoder_ffn_dim: 2048
+    decoder_ffn_dim: 2048
+    encoder_attention_heads: 16
+    decoder_attention_heads: 16
     dropout: 0.1
     activation_function: "swish"
 
@@ -28,7 +28,7 @@ model:
   generation_config:
     max_length: 128
     num_beams: 1
-    early_stopping: true
+    early_stopping: false
     do_sample: false
 
 # Data configuration
@@ -48,9 +48,9 @@ trainer:
 
   # Training parameters
   training:
-    num_epochs: 20
-    train_batch_size: 32
-    eval_batch_size: 32
+    num_epochs: 8
+    train_batch_size: 16
+    eval_batch_size: 16
     gradient_accumulation_steps: 1
 
     # Learning rate and optimization
@@ -93,12 +93,6 @@ trainer:
       num_samples: 30  # Log more samples for better insights
       frequency: 1     # Log every evaluation for detailed tracking
 
-  # Generation parameters for evaluation
-  generation:
-    max_length: 128
-    num_beams: 1
-    eval_num_beams: 1
-
   # Evaluation metrics - Only SacreBLEU, chrF++, and Georgian COMET
   evaluation:
     evaluators:
@@ -110,7 +104,7 @@ trainer:
       - name: "georgian_comet"
         config:
           model_name: "Darsala/georgian_comet"
-          batch_size: 32
+          batch_size: 16
           device: "cuda"
           gpus: 1
 

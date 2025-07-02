@@ -30,7 +30,6 @@ preprocessors:
     description: "Convert English text to lowercase (good for EN→KA)"
     params:
       columns: ["en"]
-      preserve_proper_nouns: true  # Keep proper nouns capitalized
 
   # Synchronize punctuation between English and Georgian
   - name: "sync_punctuation"
