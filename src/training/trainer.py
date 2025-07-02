@@ -361,6 +361,70 @@ class NMTTrainer:
             print(f"Failed to save model: {e}")
             raise
 
+    def _log_test_results_table(self, test_predictions, num_samples=30):
+        """Log a wandb.Table of test results (sampled) to wandb."""
+        import pandas as pd
+        # Get test dataset
+        test_dataset = self.datasets['test']
+        # Check if predictions are available
+        pred_ids = test_predictions.get('predictions', None)
+        if pred_ids is None:
+            print("⚠️ No predictions found in test_predictions. Skipping wandb test table logging.")
+            return
+        # Sample indices
+        sample_indices = range(min(num_samples, len(test_dataset)))
+        # Get input_ids, labels, and predictions
+        input_ids = [test_dataset[i]['input_ids'] for i in sample_indices]
+        labels = [test_dataset[i]['labels'] for i in sample_indices]
+        # pred_ids is already set and checked above, so do not reassign here
+        if hasattr(pred_ids, 'tolist'):
+            pred_ids = pred_ids.tolist()
+        pred_ids = [pred_ids[i] for i in sample_indices]
+        # Decode
+        tokenizer = self.tokenizer
+        # Replace -100 with pad_token_id for decoding
+        pad_token_id = getattr(tokenizer, 'pad_token_id', 0)
+        labels_for_decode = [[token if token != -100 else pad_token_id for token in seq] for seq in labels]
+        pred_ids_for_decode = [[token if token != -100 else pad_token_id for token in seq] for seq in pred_ids]
+        # Try encoder/decoder logic
+        if hasattr(tokenizer, 'encoder') and hasattr(tokenizer, 'decoder'):
+            try:
+                sources = tokenizer.encoder.batch_decode(input_ids, skip_special_tokens=True)
+                references = tokenizer.decoder.batch_decode(labels_for_decode, skip_special_tokens=True)
+                predictions = tokenizer.decoder.batch_decode(pred_ids_for_decode, skip_special_tokens=True)
+            except Exception:
+                sources = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                references = tokenizer.batch_decode(labels_for_decode, skip_special_tokens=True)
+                predictions = tokenizer.batch_decode(pred_ids_for_decode, skip_special_tokens=True)
+        else:
+            sources = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+            references = tokenizer.batch_decode(labels_for_decode, skip_special_tokens=True)
+            predictions = tokenizer.batch_decode(pred_ids_for_decode, skip_special_tokens=True)
+        # Try to get original source sentences if available
+        if hasattr(test_dataset, 'features') and 'en' in test_dataset.features:
+            orig_sources = [str(test_dataset['en'][i]) for i in sample_indices]
+        elif hasattr(test_dataset, '__getitem__'):
+            orig_sources = []
+            for i in sample_indices:
+                item = test_dataset[i]
+                if isinstance(item, dict) and 'en' in item:
+                    orig_sources.append(str(item['en']))
+                else:
+                    orig_sources.append(sources.pop(0) if sources else "N/A")
+        else:
+            orig_sources = sources
+        # Build DataFrame
+        df = pd.DataFrame({
+            'source': orig_sources,
+            'reference': references,
+            'prediction': predictions
+        })
+        # Log to wandb
+        import wandb
+        table = wandb.Table(dataframe=df)
+        wandb.log({"test_results_table": table})
+        print(f"✅ Logged test_results_table to wandb with {len(df)} samples.")
+
     def run_full_training(self) -> Dict[str, Any]:
         """Run the complete training pipeline."""
         print("=" * 60)
@@ -381,6 +445,9 @@ class NMTTrainer:
 
         # Generate predictions on test set
         test_predictions = self.predict('test')
+
+        # Log test results table to wandb (sample 30)
+        self._log_test_results_table(test_predictions, num_samples=30)
 
         # Log final statistics
         final_stats = {
