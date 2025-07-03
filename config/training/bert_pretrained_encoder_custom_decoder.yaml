@@ -1,0 +1,97 @@
+# Encoder-Decoder Model: Pretrained BERT Encoder, Custom Decoder
+# This configuration uses EncoderDecoderTokenizer with:
+# - Encoder: bert-base-uncased (pretrained)
+# - Decoder: randomly initialized with custom config
+
+# Tokenizer configuration
+tokenizer:
+  type: "encoder_decoder"
+  encoder_model: "bert-base-uncased"
+  decoder_model: "RichNachos/georgian-corpus-tokenizer-test"
+
+# Model configuration
+model:
+  type: "encoder_decoder_pretrained_encoder_custom_decoder"
+  encoder_model: "bert-base-uncased"
+  decoder_config:
+    hidden_size: 1024
+    num_hidden_layers: 6
+    num_attention_heads: 16
+    intermediate_size: 4096
+    max_position_embeddings: 512
+    position_embedding_type: "relative_key_query"
+    is_decoder: true
+    add_cross_attention: true
+
+  # Generation configuration
+  generation_config:
+    max_length: 256
+    num_beams: 1
+    early_stopping: false
+    do_sample: false
+
+# Data configuration
+data:
+  max_length: 256
+  source_column: "en"
+  target_column: "ka"
+  target_prefix: ""
+  encoder_decoder_preprocessing: true
+  max_source_length: 256
+  max_target_length: 256
+  preprocessing_num_workers: 4
+
+# Trainer configuration
+trainer:
+  type: "seq2seq_with_metrics"
+  training:
+    num_epochs: 16
+    train_batch_size: 16
+    eval_batch_size: 16
+    gradient_accumulation_steps: 5
+    learning_rate: 5e-4
+    lr_scheduler_type: "cosine"
+    warmup_ratio: 0.1
+    weight_decay: 0.01
+    evaluation_strategy: "steps"
+    eval_steps: 0.0625
+    logging_steps: 0.0625
+    save_steps: 0.0625
+    save_total_limit: 3
+    fp16: true
+    num_workers: 4
+    seed: 42
+    metric_for_best_model: "eval_georgian_comet_comet"
+    greater_is_better: true
+    label_smoothing_factor: 0.1
+    report_to: "wandb"
+
+    early_stopping:
+      enabled: true
+      patience: 3
+      threshold: 0.001
+
+    prediction_logging:
+      enabled: true
+      num_samples: 30
+      frequency: 1
+
+  evaluation:
+    evaluators:
+      - name: "sacrebleu"
+        config: {}
+      - name: "chrf"
+        config:
+          word_order: 2
+      - name: "georgian_comet"
+        config:
+          model_name: "Darsala/georgian_comet"
+          batch_size: 16
+          device: "cuda"
+          gpus: 1
+
+# Experiment metadata
+experiment:
+  name: "bert_pretrained_encoder_custom_decoder"
+  description: "EncoderDecoder model with pretrained BERT encoder and custom randomly initialized decoder."
+  tags: ["encoder_decoder", "bert", "custom_decoder", "pretrained_encoder", "from_scratch"] 
