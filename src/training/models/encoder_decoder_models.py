@@ -110,7 +110,7 @@ def create_encoder_decoder_pretrained_encoder_custom_decoder(config: Dict[str, A
     encoder_model_name = config.get('encoder_model', 'bert-base-uncased')
     decoder_config_dict = config.get('decoder_config', {})
     decoder_config = BertConfig(**decoder_config_dict)
-    decoder_config.vocab_size = tokenizer.vocab_size
+    decoder_config.vocab_size = tokenizer.decoder.vocab_size
 
     print(f"Creating EncoderDecoder model with pretrained encoder and custom decoder config:")
     print(f"  Encoder: {encoder_model_name}")
@@ -120,7 +120,8 @@ def create_encoder_decoder_pretrained_encoder_custom_decoder(config: Dict[str, A
     encoder = AutoModel.from_pretrained(encoder_model_name)
     # Create decoder from config (randomly initialized)
     decoder = BertLMHeadModel(decoder_config)
-
+    print(f"decoder config: {decoder.config}")
+    
     # Create encoder-decoder model
     model = EncoderDecoderModel(encoder=encoder, decoder=decoder)
 
@@ -143,8 +144,8 @@ def create_encoder_decoder_pretrained_encoder_custom_decoder(config: Dict[str, A
     generation_config.early_stopping = config.get('generation_config', {}).get('early_stopping', False)
     generation_config.do_sample = config.get('generation_config', {}).get('do_sample', False)
     generation_config.pad_token_id = int(tokenizer.pad_token_id)
-    generation_config.bos_token_id = int(tokenizer.bos_token_id)
-    generation_config.eos_token_id = int(tokenizer.eos_token_id)
+    generation_config.bos_token_id = int(tokenizer.decoder.bos_token_id)
+    generation_config.eos_token_id = int(tokenizer.decoder.eos_token_id)
 
     # Create data collator
     data_collator = DataCollatorForSeq2Seq(

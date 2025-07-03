@@ -147,10 +147,11 @@ class NMTTrainer:
             'test': test_tokenized
         }
 
-        print(f"Input ids: \n{train_tokenized['input_ids'][:2]}\n")
-        print(f"Labels: \n{train_tokenized['labels'][:2]}\n")
-        print(f"Attention mask: \n{train_tokenized['attention_mask'][:2]}\n")
-
+        print(f"input_ids: \n{train_tokenized['input_ids'][:2]}\n")
+        print(f"labels: \n{train_tokenized['labels'][:2]}\n")
+        print(f"attention_mask: \n{train_tokenized['attention_mask'][:2]}\n")
+        print(f"decoder_input_ids: \n{train_tokenized['decoder_input_ids'][:2]}\n")
+        print(f"decoder_attention_mask: \n{train_tokenized['decoder_attention_mask'][:2]}\n")
         print("Datasets loaded and tokenized successfully")
 
     def _create_model(self) -> None:
@@ -174,26 +175,6 @@ class NMTTrainer:
         self.model, self.generation_config, self.data_collator = model_registry.create_model(
             model_type, model_config, self.tokenizer
         )
-
-        # Resize token embeddings if needed
-        # if hasattr(self.model, 'resize_token_embeddings'):
-        #     # Check if this is an EncoderDecoder model
-        #     if hasattr(self.model, 'encoder') and hasattr(self.model, 'decoder'):
-        #         # For EncoderDecoder models, resize encoder and decoder separately
-        #         from src.training.tokenizers.encoder_decoder_tokenizers import EncoderDecoderTokenizer
-        #         if isinstance(self.tokenizer, EncoderDecoderTokenizer):
-        #             if hasattr(self.model.encoder, 'resize_token_embeddings'):
-        #                 self.model.encoder.resize_token_embeddings(len(self.tokenizer.encoder))
-        #                 print(f"Resized encoder embeddings to: {len(self.tokenizer.encoder)}")
-        #             if hasattr(self.model.decoder, 'resize_token_embeddings'):
-        #                 self.model.decoder.resize_token_embeddings(len(self.tokenizer.decoder))
-        #                 print(f"Resized decoder embeddings to: {len(self.tokenizer.decoder)}")
-        #         else:
-        #             # For non-EncoderDecoderTokenizer with EncoderDecoder model, use tokenizer length
-        #             if hasattr(self.model.encoder, 'resize_token_embeddings'):
-        #                 self.model.encoder.resize_token_embeddings(len(self.tokenizer))
-        #             if hasattr(self.model.decoder, 'resize_token_embeddings'):
-        #                 self.model.decoder.resize_token_embeddings(len(self.tokenizer))
 
         # Log model information
         total_params = sum(p.numel() for p in self.model.parameters())

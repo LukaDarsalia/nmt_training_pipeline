@@ -186,7 +186,7 @@ def create_seq2seq_with_metrics_trainer(config: Dict[str, Any],
             # Handle tuple output from model
             if isinstance(preds, tuple):
                 preds = preds[0]
-
+            print(f"Predictions example: {preds[0]}")
             # Replace -100 with pad token id for decoding
             preds = torch.where(
                 torch.tensor(preds) == -100,

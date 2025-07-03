@@ -45,8 +45,9 @@ class EncoderDecoderTokenizer(PreTrainedTokenizer):
 
         if self.decoder.eos_token is None:
             self.decoder.eos_token = self.decoder.sep_token
-        if self.decoder.eos_token is None:
-            self.decoder.eos_token = self.decoder.sep_token
+
+        if self.encoder.eos_token is None:
+            self.encoder.eos_token = self.encoder.sep_token
 
         if self.encoder.pad_token is None:
             self.encoder.pad_token = self.encoder.eos_token
@@ -340,6 +341,7 @@ class EncoderDecoderTokenizer(PreTrainedTokenizer):
         if text_target:
             tmp = self.decoder(text_target, *args, **kwargs)
             results['labels'] = tmp['input_ids']
+            results['labels'][results['labels'] == self.decoder.pad_token_id] = -100
             results['decoder_attention_mask'] = tmp['attention_mask']
         return results
 
@@ -571,12 +573,13 @@ class EncoderDecoderTokenizerImpl(BaseTokenizer):
             if isinstance(model, EncoderDecoderModel):
                 labels = model_inputs["labels"]                             # (B, L)
                 dec_mask = model_inputs["decoder_attention_mask"]           # (B, L)
-                bos_id   = model.config.bos_token_id
+                bos_id   = tokenizer.decoder.bos_token_id
                 pad_val  = -100                                             # ignore‐index
 
                 # 1) Which sequences start with BOS?
                 mask = labels[:, 0] == bos_id                               # (B,) # type: ignore
 
+                
                 if mask.any():
                     # 2) shift labels left + pad with ignore‐index
                     shifted_lbl = torch.cat([
