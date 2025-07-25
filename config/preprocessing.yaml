@@ -30,7 +30,6 @@ preprocessors:
     description: "Convert English text to lowercase (good for EN→KA)"
     params:
       columns: ["en"]
-      preserve_proper_nouns: true  # Keep proper nouns capitalized
 
   # Synchronize punctuation between English and Georgian
   - name: "sync_punctuation"
@@ -84,7 +83,7 @@ augmenters:
     params:
       percentage: 0.05        # 5% of examples
       noise_types: ["delete", "insert", "substitute", "swap"]
-      char_ranges: ["a-z", "A-Z", "ა-ჰ"]
+      char_ranges: ["a-z"]
       target_column: "en"     # Apply noise to English
 
   # Concatenate consecutive sentences
@@ -92,8 +91,8 @@ augmenters:
     enabled: true
     description: "Create longer examples by concatenating sentence pairs"
     params:
-      percentage: 0.03        # 3% of examples
-      min_n:      2
+      percentage: 0.1        # 10% of examples
+      min_n:      3
       max_n:      5
       separator:  " "
 
@@ -102,7 +101,7 @@ augmenters:
     enabled: true
     description: "Generate examples to teach number copying"
     params:
-      num_examples: 5_000     # Generate 5000 number examples
+      num_examples: 20000     # Generate 20000 number examples
       number_types: ["integer", "float", "large", "small"]
 
   # Generate Georgian text copying examples
@@ -110,7 +109,7 @@ augmenters:
     enabled: true
     description: "Generate examples where EN equals KA (from dataset Georgian texts)"
     params:
-      percentage: 0.01        # 1% of dataset size
+      percentage: 0.02        # 1% of dataset size
       # Alternative: use num_examples: 1000 for fixed number
 
   # Simulate natural human writing variations
@@ -118,7 +117,7 @@ augmenters:
     enabled: true
     description: "Simulate natural human writing variations and common errors"
     params:
-      percentage: 0.02        # 2% of examples
+      percentage: 0.01        # 2% of examples
       variation_types: ["word_order", "article_errors", "informal_style"]
 
 # Global settings

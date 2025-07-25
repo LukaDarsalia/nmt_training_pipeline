@@ -1,0 +1,111 @@
+# Multilingual E5 Encoder-Decoder Model
+# This configuration uses intfloat/multilingual-e5-large for both encoder and decoder
+# with EncoderDecoderTokenizer using the same tokenizer for both sides
+
+# Tokenizer configuration
+tokenizer:
+  type: "encoder_decoder"  # Use encoder-decoder tokenizer
+  encoder_model: "intfloat/multilingual-e5-small"
+  decoder_model: "intfloat/multilingual-e5-small"
+
+# Model configuration
+model:
+  type: "encoder_decoder_pretrained"  # Use encoder-decoder combination
+  encoder_model: "intfloat/multilingual-e5-small"
+  decoder_model: "intfloat/multilingual-e5-small"
+  encoder_decoder_preprocessing: true  # Enable special preprocessing
+
+  # Generation configuration
+  generation_config:
+    max_length: 128
+    early_stopping: false
+    do_sample: false
+    num_beams: 1
+    eval_num_beams: 1
+# Data configuration
+data:
+  max_length: 128
+  source_column: "en"
+  target_column: "ka"
+  target_prefix: ""
+  encoder_decoder_preprocessing: true  # Enable special tokenization
+  max_source_length: 128
+  max_target_length: 128
+  preprocessing_num_workers: 4
+
+# Trainer configuration
+trainer:
+  type: "seq2seq_with_metrics"
+
+  # Training parameters
+  training:
+    num_epochs: 20
+    train_batch_size: 4
+    eval_batch_size: 4
+    gradient_accumulation_steps: 8
+
+    # Learning rate and optimization - lower for large pretrained model
+    learning_rate: 2e-5
+    lr_scheduler_type: "cosine"
+    warmup_ratio: 0.1
+    weight_decay: 0.01
+
+    # Evaluation and logging
+    evaluation_strategy: "steps"
+    eval_steps: 0.2
+    logging_steps: 0.2
+    save_steps: 0.2
+    save_total_limit: 3
+
+    # Other parameters
+    fp16: true
+    num_workers: 4
+    seed: 42
+
+    # Best model tracking - using COMET as the main metric
+    metric_for_best_model: "eval_georgian_comet_comet"
+    greater_is_better: true
+
+    # Label smoothing
+    label_smoothing_factor: 0.1
+
+    # Reporting
+    report_to: "wandb"
+
+    # Early stopping
+    early_stopping:
+      enabled: true
+      patience: 3
+      threshold: 0.001
+
+    # Prediction logging
+    prediction_logging:
+      enabled: true
+      num_samples: 30
+      frequency: 1
+
+  # Data configuration
+  data:
+    source_column: "en"
+    target_column: "ka"
+
+  # Evaluation metrics - Only SacreBLEU, chrF++, and Georgian COMET
+  evaluation:
+    evaluators:
+      - name: "sacrebleu"
+        config: {}
+      - name: "chrf"
+        config:
+          word_order: 2  # chrF++
+      - name: "georgian_comet"
+        config:
+          model_name: "Darsala/georgian_comet"
+          batch_size: 16
+          device: "cuda"
+          gpus: 1
+
+# Experiment metadata
+experiment:
+  name: "multilingual_e5_encoder_decoder"
+  description: "Multilingual E5-large encoder-decoder model for EN→KA translation"
+  tags: ["encoder_decoder", "multilingual_e5", "large", "pretrained", "intfloat"] 

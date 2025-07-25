@@ -4,19 +4,19 @@
 splits:
   train:
     sources:
-      - artifact: "preprocessed:v14" # Parallel
-        percentage: 90
+      - artifact: "preprocessed:v16" # Parallel
+        percentage: 95
         seed: 42
 
   valid:
     sources:
-      - artifact: "preprocessed:v14" # Parallel
-        percentage: 10
+      - artifact: "preprocessed:v16" # Parallel
+        percentage: 5
         seed: 42
 
   test:
     sources:
-      - artifact: "preprocessed:v15" # Flores
+      - artifact: "preprocessed:v17" # Flores
         percentage: 100
 
 

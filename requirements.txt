@@ -20,3 +20,8 @@ seaborn
 nltk
 requests
 wordcloud
+unbabel-comet
+evaluate
+tensorflow
+overrides
+faker

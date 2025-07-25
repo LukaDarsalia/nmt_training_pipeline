@@ -1,0 +1,122 @@
+# Encoder-Decoder Model Built From Scratch
+# This configuration uses EncoderDecoderTokenizer with:
+# - Encoder: openai-community/gpt2
+# - Decoder: RichNachos/georgian-corpus-tokenizer-test tokenizer
+
+# Tokenizer configuration
+tokenizer:
+  type: "encoder_decoder"  # Use encoder-decoder tokenizer
+  encoder_model: "roberta-base"
+  decoder_model: "RichNachos/georgian-corpus-tokenizer-test"
+
+
+# Model configuration
+model:
+  type: "encoder_decoder_scratch"  # Use encoder-decoder built from scratch
+  encoder_model: "openai-community/gpt2"  # Base architecture for encoder
+  decoder_model: "openai-community/gpt2"  # Base architecture for decoder
+
+  # Model architecture parameters
+  architecture:
+    d_model: 512
+    encoder_layers: 6
+    decoder_layers: 6
+    encoder_ffn_dim: 1024
+    decoder_ffn_dim: 1024
+    encoder_attention_heads: 8
+    decoder_attention_heads: 8
+    dropout: 0.1
+    activation_function: "swish"
+
+  # Generation configuration
+  generation_config:
+    max_length: 512
+    num_beams: 1
+    early_stopping: true
+    do_sample: false
+
+# Data configuration
+data:
+  max_length: 512
+  source_column: "en"
+  target_column: "ka"
+  target_prefix: ""
+  encoder_decoder_preprocessing: true  # Enable special encoder-decoder tokenization
+
+# Trainer configuration
+trainer:
+  type: "seq2seq_with_metrics"
+
+  # Training parameters
+  training:
+    num_epochs: 10
+    train_batch_size: 4
+    eval_batch_size: 4
+    gradient_accumulation_steps: 8
+
+    # Learning rate and optimization
+    learning_rate: 5e-4
+    lr_scheduler_type: "cosine"
+    warmup_ratio: 0.1
+    weight_decay: 0.01
+
+    # Evaluation and logging
+    evaluation_strategy: "steps"
+    eval_steps: 0.2
+    logging_steps: 0.2
+    save_steps: 0.2
+    save_total_limit: 3
+
+    # Other parameters
+    fp16: true
+    num_workers: 4
+    seed: 42
+
+    # Best model tracking - using COMET as the main metric
+    metric_for_best_model: "eval_georgian_comet_comet"
+    greater_is_better: true
+
+    # Label smoothing
+    label_smoothing_factor: 0.1
+
+    # Reporting
+    report_to: "wandb"
+
+    # Early stopping
+    early_stopping:
+      enabled: true
+      patience: 3
+      threshold: 0.001
+
+    # Prediction logging
+    prediction_logging:
+      enabled: true
+      num_samples: 20
+      frequency: 2
+
+  # Generation parameters for evaluation
+  generation:
+    max_length: 512
+    num_beams: 5
+    eval_num_beams: 5
+
+  # Evaluation metrics - Only SacreBLEU, chrF++, and Georgian COMET
+  evaluation:
+    evaluators:
+      - name: "sacrebleu"
+        config: {}
+      - name: "chrf"
+        config:
+          word_order: 2  # chrF++
+      - name: "georgian_comet"
+        config:
+          model_name: "Darsala/georgian_comet"
+          batch_size: 16
+          device: "cuda"
+          gpus: 1
+
+# Experiment metadata
+experiment:
+  name: "encoder_decoder_scratch_gpt2_georgian"
+  description: "EncoderDecoder model built from scratch (GPT2 encoder + Georgian corpus decoder)"
+  tags: ["encoder_decoder", "scratch", "gpt2", "georgian", "from_scratch"] 
